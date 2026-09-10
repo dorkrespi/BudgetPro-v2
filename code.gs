@@ -4,7 +4,8 @@ const APP = {
     TRANSACTIONS: 'Transactions',
     SAVINGS_GOALS: 'SavingsGoals',
     ACCOUNT_BALANCES: 'AccountBalances',
-    CATEGORIES: 'Categories'
+    CATEGORIES: 'Categories',
+    INVITE_TOKENS: 'InviteTokens'
   },
   HEADERS: {
     SETTINGS: ['key', 'value'],
@@ -20,7 +21,12 @@ const APP = {
       'frequency',
       'alert',
       'goalId',
-      'cycleDate'
+      'cycleDate',
+      'isVariablePrice',
+      'lastMonthAmount',
+      'isInstallments',
+      'installmentsTotal',
+      'installmentsStartDate'
     ],
     SAVINGS_GOALS: [
       'id',
@@ -38,7 +44,8 @@ const APP = {
       'monthlyAmount'
     ],
     ACCOUNT_BALANCES: ['id', 'name', 'amount', 'type', 'lastUpdated'],
-    CATEGORIES: ['name']
+    CATEGORIES: ['name'],
+    INVITE_TOKENS: ['token', 'scriptUrl', 'secretKey', 'partnerPhone', 'createdAt', 'expiresAt', 'usedAt', 'isUsed']
   },
   DEFAULT_SETTINGS: {
     userName: '',
@@ -74,12 +81,10 @@ function validateSecret_(provided) {
 }
 
 function doGet(e) {
-  ensureAppSheets_();
   return handleApiRequest_(e);
 }
 
 function doPost(e) {
-  ensureAppSheets_();
   return handleApiRequest_(e);
 }
 
@@ -103,7 +108,9 @@ function handleApiRequest_(e) {
     }
 
     const secret = String(params.secret || (body && body.secret) || '').trim();
-    validateSecret_(secret);
+    if (action !== 'resolveInviteToken') {
+      validateSecret_(secret);
+    }
 
     let result;
     switch (action) {
@@ -160,6 +167,14 @@ function handleApiRequest_(e) {
 
       case 'deleteCategory':
         result = deleteCategory(payload.name || payload.category || payload);
+        break;
+
+      case 'createInviteToken':
+        result = createInviteToken(payload, secret);
+        break;
+
+      case 'resolveInviteToken':
+        result = resolveInviteToken(payload.token || params.token || '');
         break;
 
       case 'resetDemoData':
@@ -255,7 +270,11 @@ function upsertSettings(payload) {
   ensureAppSheets_();
   const merged = Object.assign({}, readSettings_(), payload || {});
   writeSettings_(merged);
-  return getBootstrapData();
+  return {
+    ok: true,
+    updatedAt: new Date().toISOString(),
+    settings: normalizeSettingsObject_(merged)
+  };
 }
 
 function upsertTransaction(payload) {
@@ -269,15 +288,19 @@ function upsertTransaction(payload) {
 
   return {
     ok: true,
-    transaction: item,
-    state: getBootstrapData()
+    updatedAt: new Date().toISOString(),
+    transaction: item
   };
 }
 
 function deleteTransaction(id) {
   ensureAppSheets_();
-  removeById_(APP.SHEETS.TRANSACTIONS, APP.HEADERS.TRANSACTIONS, id);
-  return getBootstrapData();
+  const deletedId = removeById_(APP.SHEETS.TRANSACTIONS, APP.HEADERS.TRANSACTIONS, id);
+  return {
+    ok: true,
+    updatedAt: new Date().toISOString(),
+    deletedId: deletedId
+  };
 }
 
 function upsertSavingsGoal(payload) {
@@ -291,15 +314,19 @@ function upsertSavingsGoal(payload) {
 
   return {
     ok: true,
-    savingsGoal: item,
-    state: getBootstrapData()
+    updatedAt: new Date().toISOString(),
+    savingsGoal: item
   };
 }
 
 function deleteSavingsGoal(id) {
   ensureAppSheets_();
-  removeById_(APP.SHEETS.SAVINGS_GOALS, APP.HEADERS.SAVINGS_GOALS, id);
-  return getBootstrapData();
+  const deletedId = removeById_(APP.SHEETS.SAVINGS_GOALS, APP.HEADERS.SAVINGS_GOALS, id);
+  return {
+    ok: true,
+    updatedAt: new Date().toISOString(),
+    deletedId: deletedId
+  };
 }
 
 function upsertAccountBalance(payload) {
@@ -313,15 +340,19 @@ function upsertAccountBalance(payload) {
 
   return {
     ok: true,
-    accountBalance: item,
-    state: getBootstrapData()
+    updatedAt: new Date().toISOString(),
+    accountBalance: item
   };
 }
 
 function deleteAccountBalance(id) {
   ensureAppSheets_();
-  removeById_(APP.SHEETS.ACCOUNT_BALANCES, APP.HEADERS.ACCOUNT_BALANCES, id);
-  return getBootstrapData();
+  const deletedId = removeById_(APP.SHEETS.ACCOUNT_BALANCES, APP.HEADERS.ACCOUNT_BALANCES, id);
+  return {
+    ok: true,
+    updatedAt: new Date().toISOString(),
+    deletedId: deletedId
+  };
 }
 
 function upsertCategory(value) {
@@ -334,7 +365,11 @@ function upsertCategory(value) {
   if (categories.indexOf(name) === -1) categories.push(name);
   writeCategories_(categories);
 
-  return getBootstrapData();
+  return {
+    ok: true,
+    updatedAt: new Date().toISOString(),
+    categories: categories
+  };
 }
 
 function deleteCategory(value) {
@@ -348,7 +383,11 @@ function deleteCategory(value) {
   });
 
   writeCategories_(categories);
-  return getBootstrapData();
+  return {
+    ok: true,
+    updatedAt: new Date().toISOString(),
+    categories: categories
+  };
 }
 
 function clearAllData() {
@@ -361,6 +400,86 @@ function clearAllData() {
   writeCategories_(APP.DEFAULT_CATEGORIES.slice());
 
   return getBootstrapData();
+}
+
+function createInviteToken(payload, secret) {
+  ensureAppSheets_();
+  payload = payload || {};
+
+  const appBaseUrl = String(payload.appBaseUrl || '').trim();
+  const partnerPhone = String(payload.partnerPhone || '').trim();
+  const scriptUrl = String(payload.scriptUrl || '').trim() || String(readSettings_().scriptUrl || '').trim();
+  const resolvedSecret = String(secret || '').trim();
+
+  if (!appBaseUrl) throw new Error('appBaseUrl is required');
+  if (!scriptUrl) throw new Error('scriptUrl is required');
+  if (!resolvedSecret) throw new Error('secret is required');
+
+  const token = Utilities.getUuid().replace(/-/g, '') + Utilities.getUuid().replace(/-/g, '');
+  const createdAt = new Date().toISOString();
+  const expiresAt = new Date(Date.now() + 1000 * 60 * 60 * 24 * 7).toISOString(); // 7 days
+
+  const rows = readObjects_(APP.SHEETS.INVITE_TOKENS, APP.HEADERS.INVITE_TOKENS);
+  rows.push({
+    token: token,
+    scriptUrl: scriptUrl,
+    secretKey: resolvedSecret,
+    partnerPhone: partnerPhone,
+    createdAt: createdAt,
+    expiresAt: expiresAt,
+    usedAt: '',
+    isUsed: false
+  });
+  writeTableFromObjects_(APP.SHEETS.INVITE_TOKENS, APP.HEADERS.INVITE_TOKENS, rows);
+
+  const loginLink =
+    appBaseUrl.replace(/\/+$/, '') +
+    '/#/login?backend=' + encodeURIComponent(scriptUrl) +
+    '&inviteToken=' + encodeURIComponent(token);
+
+  return {
+    ok: true,
+    token: token,
+    expiresAt: expiresAt,
+    loginLink: loginLink
+  };
+}
+
+function resolveInviteToken(tokenValue) {
+  ensureAppSheets_();
+  const token = String(tokenValue || '').trim();
+  if (!token) throw new Error('Token is required');
+
+  const rows = readObjects_(APP.SHEETS.INVITE_TOKENS, APP.HEADERS.INVITE_TOKENS);
+  let foundIndex = -1;
+  for (let i = 0; i < rows.length; i++) {
+    if (String(rows[i].token || '').trim() === token) {
+      foundIndex = i;
+      break;
+    }
+  }
+
+  if (foundIndex === -1) throw new Error('Invite token not found');
+  const row = rows[foundIndex];
+
+  const isUsed = toBool_(row.isUsed);
+  if (isUsed) throw new Error('Invite token already used');
+
+  const expiresAt = String(row.expiresAt || '').trim();
+  if (expiresAt) {
+    const exp = toDate_(expiresAt);
+    if (exp && exp.getTime() < Date.now()) throw new Error('Invite token expired');
+  }
+
+  rows[foundIndex].isUsed = true;
+  rows[foundIndex].usedAt = new Date().toISOString();
+  writeTableFromObjects_(APP.SHEETS.INVITE_TOKENS, APP.HEADERS.INVITE_TOKENS, rows);
+
+  return {
+    ok: true,
+    scriptUrl: String(row.scriptUrl || '').trim(),
+    secretKey: String(row.secretKey || '').trim()
+  };
 }
 
 function readAppState_() {
@@ -387,7 +506,12 @@ function normalizeTransactionRow_(row) {
     frequency: normalizeNullableString_(row.frequency),
     alert: toBool_(row.alert),
     goalId: normalizeNullableString_(row.goalId),
-    cycleDate: normalizeNullableString_(row.cycleDate)
+    cycleDate: normalizeNullableString_(row.cycleDate),
+    isVariablePrice: toBool_(row.isVariablePrice),
+    lastMonthAmount: toNumber_(row.lastMonthAmount),
+    isInstallments: toBool_(row.isInstallments),
+    installmentsTotal: normalizeNullableInteger_(row.installmentsTotal),
+    installmentsStartDate: normalizeNullableDateOnly_(row.installmentsStartDate)
   };
 }
 
@@ -552,39 +676,61 @@ function writeCategories_(categories) {
 function upsertById_(sheetName, headers, payload, normalizeFn) {
   payload = payload || {};
 
-  const rows = readObjects_(sheetName, headers);
+  const sheet = getSheet_(sheetName, headers);
+  const rowCount = sheet.getLastRow();
   const id = String(payload.id || '').trim();
-  let index = -1;
+  const idColumn = headers.indexOf('id') + 1;
 
-  if (id) {
-    for (let i = 0; i < rows.length; i++) {
-      if (String(rows[i].id || '').trim() === id) {
-        index = i;
+  let targetSheetRow = -1;
+  let existing = {};
+  if (id && idColumn > 0 && rowCount >= 2) {
+    const idValues = sheet.getRange(2, idColumn, rowCount - 1, 1).getValues();
+    for (let i = 0; i < idValues.length; i++) {
+      if (String(idValues[i][0] || '').trim() === id) {
+        targetSheetRow = i + 2;
         break;
       }
     }
   }
 
-  if (index >= 0) {
-    rows[index] = normalizeFn(Object.assign({}, rows[index], payload));
-  } else {
-    rows.push(normalizeFn(payload));
-    index = rows.length - 1;
+  if (targetSheetRow >= 2) {
+    const raw = sheet.getRange(targetSheetRow, 1, 1, headers.length).getValues()[0];
+    headers.forEach(function(h, i) {
+      existing[h] = raw[i];
+    });
   }
 
-  writeTableFromObjects_(sheetName, headers, rows);
-  return rows[index];
+  const normalized = normalizeFn(Object.assign({}, existing, payload));
+  const rowValues = headers.map(function(h) {
+    return normalized[h];
+  });
+
+  if (targetSheetRow >= 2) {
+    sheet.getRange(targetSheetRow, 1, 1, headers.length).setValues([rowValues]);
+  } else {
+    sheet.getRange(rowCount + 1, 1, 1, headers.length).setValues([rowValues]);
+  }
+
+  return normalized;
 }
 
 function removeById_(sheetName, headers, id) {
+  const sheet = getSheet_(sheetName, headers);
   const target = String(id || '').trim();
-  if (!target) return;
+  if (!target) return '';
+  const rowCount = sheet.getLastRow();
+  const idColumn = headers.indexOf('id') + 1;
+  if (rowCount < 2 || idColumn <= 0) return '';
 
-  const rows = readObjects_(sheetName, headers).filter(function(row) {
-    return String(row.id || '').trim() !== target;
-  });
+  const idValues = sheet.getRange(2, idColumn, rowCount - 1, 1).getValues();
+  for (let i = 0; i < idValues.length; i++) {
+    if (String(idValues[i][0] || '').trim() === target) {
+      sheet.deleteRow(i + 2);
+      return target;
+    }
+  }
 
-  writeTableFromObjects_(sheetName, headers, rows);
+  return '';
 }
 
 function parsePayload_(raw) {
@@ -681,11 +827,15 @@ function ensureAppSheets_() {
     getSheet_(APP.SHEETS[key], APP.HEADERS[key] || ['value']);
   });
 
-  const settings = readSettings_();
-  writeSettings_(settings);
+  const settingsSheet = getSheet_(APP.SHEETS.SETTINGS, APP.HEADERS.SETTINGS);
+  if (settingsSheet.getLastRow() < 2) {
+    writeSettings_(APP.DEFAULT_SETTINGS);
+  }
 
-  const categories = readCategories_();
-  writeCategories_(categories);
+  const categoriesSheet = getSheet_(APP.SHEETS.CATEGORIES, APP.HEADERS.CATEGORIES);
+  if (categoriesSheet.getLastRow() < 2) {
+    writeCategories_(APP.DEFAULT_CATEGORIES.slice());
+  }
 }
 
 function getSheet_(sheetName, headers) {

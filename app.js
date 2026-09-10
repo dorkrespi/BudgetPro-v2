@@ -57,7 +57,8 @@ const state = {
         autoRecalculate: true,
         profileImage: 'https://lh3.googleusercontent.com/aida-public/AB6AXuA8tz1rrtsBZ2k9ahQ2gh5R7J9VY1PCZwgQw-WPcE9dbFnPneV3zSgVGp9svoETdhHPP44ajJ2uTs1aQaH3RWmA6TK-ByEWnrlbmi6am1TaFnnwakExMp95akuzKjlavEQkTWWesTNyR8OwEK3GjJ3U9b3IofMqtGYkFtviWx6G34ZOeG5np-vl1kNcCr4QykXSoIakaC1nIJeAsy_jxpTUywU6iQMDzJcGKVy8_SopP-gAQHotii8iMcbjCRyIUbnh9UMBxtYtwwo',
         scriptUrl: '',
-        secretKey: ''
+        secretKey: '',
+        inviteMessageStyle: 'short'
     },
     categories: [
         { name: 'מזון', icon: 'restaurant' },
@@ -78,20 +79,42 @@ const state = {
     isLoading: false,
     loadingCount: 0,
     loadingMessage: 'טוען נתונים...',
+    saveQueueSize: 0,
+    quickAddLastHandled: '',
+    partnerInviteExpanded: false,
     onboardingStep: 0,
     onboardingData: {
         name: '',
         profileType: '',
+        invitePartner: '',
+        partnerPhone: '',
         cycleStartDay: 1,
         checkingBalance: '',
         fixedIncome: '',
+        spouseSalary: '',
         fixedExpense: ''
     },
-    error: null
+    error: null,
+    reminderModalOpen: false,
+    forecastTooltipOpen: null,
+    goalRecurringSyncDone: false
 };
 
 const ONBOARDING_DONE_KEY = 'budget_onboarding_completed_v1';
 const ONBOARDING_DRAFT_KEY = 'budget_onboarding_draft_v1';
+const PERF_LOGS_ENABLED = true;
+let saveQueuePromise = Promise.resolve();
+
+function perfNow() {
+    if (typeof performance !== 'undefined' && performance.now) return performance.now();
+    return Date.now();
+}
+
+function perfLog(label, startedAt, extra = '') {
+    if (!PERF_LOGS_ENABLED) return;
+    const took = (perfNow() - startedAt).toFixed(1);
+    console.log(`[PERF] ${label}: ${took}ms${extra ? ` | ${extra}` : ''}`);
+}
 
 // --- Constants ---
 const PASTEL_COLORS = [
@@ -143,10 +166,83 @@ function formatDateLocal(date) {
     return `${year}-${month}-${day}`;
 }
 
+function escapeHtmlAttr(value) {
+    return String(value || '')
+        .replace(/&/g, '&amp;')
+        .replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;');
+}
+
+function getLoginPrefillFromHash() {
+    const rawHash = window.location.hash || '';
+    const clean = rawHash.startsWith('#') ? rawHash.slice(1) : rawHash;
+    const parts = clean.split('?');
+    const path = parts[0] || '/';
+    if (path !== '/login') return { scriptUrl: '', secretKey: '' };
+
+    const params = new URLSearchParams(parts[1] || '');
+    return {
+        scriptUrl: params.get('scriptUrl') || '',
+        secretKey: params.get('secretKey') || '',
+        backend: params.get('backend') || '',
+        inviteToken: params.get('inviteToken') || ''
+    };
+}
+
+function getHashParams() {
+    const rawHash = window.location.hash || '';
+    const clean = rawHash.startsWith('#') ? rawHash.slice(1) : rawHash;
+    const parts = clean.split('?');
+    return new URLSearchParams(parts[1] || '');
+}
+
 function parseDateLocal(dateStr) {
     if (!dateStr) return new Date();
     const [year, month, day] = dateStr.split('-').map(Number);
     return new Date(year, month - 1, day);
+}
+
+function normalizeInstallmentsTotal(value) {
+    const n = Math.round(Number(value) || 0);
+    return n > 1 ? n : 0;
+}
+
+function getInstallmentStatus(transaction, monthIndex, year) {
+    const total = normalizeInstallmentsTotal(transaction?.installmentsTotal);
+    const enabled = !!(transaction && transaction.isInstallments && total > 0);
+    if (!enabled) {
+        return { enabled: false, active: false, index: 0, total: 0, startDate: null };
+    }
+
+    const startDate = parseDateLocal(transaction.installmentsStartDate || transaction.date);
+    const monthsDiff = (year - startDate.getFullYear()) * 12 + (monthIndex - startDate.getMonth());
+    const index = monthsDiff + 1;
+    const active = monthsDiff >= 0 && monthsDiff < total;
+
+    return { enabled: true, active, index, total, startDate };
+}
+
+function getInstallmentBadgeText(transaction, monthIndex, year) {
+    const status = getInstallmentStatus(transaction, monthIndex, year);
+    if (!status.enabled || !status.active) return '';
+    return `${status.index} מתוך ${status.total}`;
+}
+
+function formatTransactionNameWithInstallment(transaction, monthIndex, year) {
+    const badge = getInstallmentBadgeText(transaction, monthIndex, year);
+    if (!badge) return String(transaction?.name || '');
+    return `${String(transaction?.name || '')} (${badge})`;
+}
+
+function compareTransactionsByDateDesc(a, b) {
+    const aTime = parseDateLocal(a?.date).getTime();
+    const bTime = parseDateLocal(b?.date).getTime();
+    if (bTime !== aTime) return bTime - aTime;
+
+    const aId = String(a?.id || '');
+    const bId = String(b?.id || '');
+    return bId.localeCompare(aId, 'en', { numeric: true, sensitivity: 'base' });
 }
 
 function getGoalRemainingMonths(goal) {
@@ -184,48 +280,93 @@ function getCycleDates(date = new Date()) {
 
 function getFilteredTransactions(filterType, date = new Date()) {
     const { start, end } = getCycleDates(date);
+    const cycleMonth = start.getMonth();
+    const cycleYear = start.getFullYear();
 
-    // Base transactions
-    let baseFiltered = state.transactions.filter(t => {
-        const tDate = parseDateLocal(t.date);
-        if (t.type === 'savings_deposit' && t.amount === 0 && t.goalId) return false;
-        return tDate >= start && tDate < end;
-    });
+    function appliesByFrequencyForCycle(transaction) {
+        const freq = String(transaction?.frequency || 'monthly');
+        const base = parseDateLocal(transaction?.date);
+        const monthsDiff = (cycleYear - base.getFullYear()) * 12 + (cycleMonth - base.getMonth());
+        if (monthsDiff < 0) return false;
+        if (freq === 'monthly') return true;
+        if (freq === 'bi-monthly') return monthsDiff % 2 === 0;
+        if (freq === 'quarterly') return monthsDiff % 3 === 0;
+        if (freq === 'semi-annually') return monthsDiff % 6 === 0;
+        if (freq === 'annually' || freq === 'annual') return monthsDiff % 12 === 0;
+        return true;
+    }
 
-    // Add automatic savings deposits
-    const autoSavings = [];
-    state.savingsGoals.forEach(goal => {
-        if (goal.startDate && goal.monthlyAmount && goal.depositDay) {
-            const goalStart = new Date(goal.startDate);
-            const cycleMonthStart = new Date(start);
-            const cycleDateKey = cycleMonthStart.toISOString();
-            
-            const exists = state.transactions.some(t => t.goalId === goal.id && t.cycleDate === cycleDateKey);
-            if (exists) return;
+    function toCycleDate(originalDate) {
+        const base = parseDateLocal(originalDate);
+        const requestedDay = base.getDate();
+        const maxDay = new Date(cycleYear, cycleMonth + 1, 0).getDate();
+        const day = Math.min(requestedDay, maxDay);
+        return formatDateLocal(new Date(cycleYear, cycleMonth, day));
+    }
 
-            const monthsDiff = (cycleMonthStart.getFullYear() - goalStart.getFullYear()) * 12 + (cycleMonthStart.getMonth() - goalStart.getMonth());
-            
-            if (monthsDiff >= 0 && (!goal.durationMonths || monthsDiff < goal.durationMonths)) {
-                const depositDate = new Date(cycleMonthStart.getFullYear(), cycleMonthStart.getMonth(), goal.depositDay);
-                if (depositDate >= start && depositDate < end) {
-                    autoSavings.push({
-                        id: `auto-savings-${goal.id}-${cycleDateKey}`,
-                        name: `הפקדה: ${goal.name}`,
-                        amount: goal.monthlyAmount,
-                        type: 'savings_deposit',
-                        category: 'הפרשות לחסכון',
-                        date: formatDateLocal(depositDate),
-                        isRecurring: true,
-                        desc: 'הפקדה אוטומטית לחיסכון',
-                        goalId: goal.id,
-                        cycleDate: cycleDateKey
-                    });
-                }
-            }
+    // Build current cycle transactions:
+    // - One-time transactions: only if date is inside cycle.
+    // - Recurring transactions: included by frequency even if original date was months ago.
+    let baseFiltered = [];
+    state.transactions.forEach((t) => {
+        if (!t) return;
+        if (t.type === 'savings_deposit' && t.amount === 0 && t.goalId) return;
+
+        const installmentStatus = getInstallmentStatus(t, cycleMonth, cycleYear);
+        if (installmentStatus.enabled) {
+            if (!installmentStatus.active) return;
+            baseFiltered.push({
+                ...t,
+                isRecurring: true,
+                frequency: 'monthly',
+                date: toCycleDate(t.installmentsStartDate || t.date),
+                installmentCurrent: installmentStatus.index,
+                installmentTotal: installmentStatus.total
+            });
+            return;
         }
+
+        const tDate = parseDateLocal(t.date);
+        const inRange = tDate >= start && tDate < end;
+        if (!t.isRecurring) {
+            if (inRange) baseFiltered.push(t);
+            return;
+        }
+
+        if (!appliesByFrequencyForCycle(t)) return;
+        if (t.type === 'savings_deposit' && t.goalId) {
+            const skippedCycles = getSkippedCycleSetFromTransaction(t);
+            const currentCycleKey = `${cycleYear}-${String(cycleMonth + 1).padStart(2, '0')}`;
+            if (skippedCycles.has(currentCycleKey)) return;
+        }
+
+        baseFiltered.push({
+            ...t,
+            date: toCycleDate(t.date)
+        });
     });
 
-    let allTransactions = [...baseFiltered, ...autoSavings];
+    // Guard against legacy duplicate recurring savings rows for the same goal.
+    // Keep only the latest occurrence per goal in the current filtered set.
+    const dedupedFromEnd = [];
+    const seenRecurringSavingsGoal = new Set();
+    for (let i = baseFiltered.length - 1; i >= 0; i--) {
+        const t = baseFiltered[i];
+        const isGoalRecurringSavings = !!(
+            t &&
+            t.type === 'savings_deposit' &&
+            t.isRecurring &&
+            String(t.goalId || '').trim()
+        );
+        if (isGoalRecurringSavings) {
+            const key = String(t.goalId).trim();
+            if (seenRecurringSavingsGoal.has(key)) continue;
+            seenRecurringSavingsGoal.add(key);
+        }
+        dedupedFromEnd.push(t);
+    }
+
+    let allTransactions = dedupedFromEnd.reverse();
 
     if (filterType === 'income') {
         allTransactions = allTransactions.filter(t => t.type === 'fixed_income' || t.type === 'variable_income');
@@ -254,6 +395,7 @@ window.addEventListener('hashchange', () => {
 
 // --- Rendering Engine ---
 function render() {
+    const renderStart = perfNow();
     const app = document.getElementById('app');
     const onboardingCompleted = localStorage.getItem(ONBOARDING_DONE_KEY) === '1';
     
@@ -287,6 +429,9 @@ function render() {
 
     if (state.currentPath === '/login') {
         app.innerHTML = renderLogin();
+        setTimeout(() => {
+            resolveInviteTokenIfPresent();
+        }, 0);
         return;
     }
 
@@ -306,6 +451,201 @@ function render() {
     // Re-attach event listeners and initialize charts if needed
     attachEventListeners();
     initCharts();
+    handleQuickAddFromHash();
+    checkVariableExpenseReminders();
+    perfLog('render()', renderStart, `path=${state.currentPath}`);
+}
+
+function getReminderStorageKey(transactionId, yearMonth) {
+    return `budget_var_expense_reminder_${transactionId}_${yearMonth}`;
+}
+
+function getCurrentCycleKey(date = new Date()) {
+    const { start } = getCycleDates(date);
+    return `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getSkippedCycleSetFromTransaction(tx) {
+    const raw = String(tx?.cycleDate || '').trim();
+    if (!raw.startsWith('skip:')) return new Set();
+    return new Set(
+        raw
+            .slice(5)
+            .split(',')
+            .map((v) => String(v || '').trim())
+            .filter(Boolean)
+    );
+}
+
+function buildSkippedCycleValue(set) {
+    const arr = Array.from(set).sort();
+    if (!arr.length) return '';
+    return `skip:${arr.join(',')}`;
+}
+
+function getGoalRecurringDepositTransaction(goalId) {
+    return state.transactions.find((t) =>
+        t &&
+        t.type === 'savings_deposit' &&
+        t.isRecurring &&
+        String(t.goalId || '') === String(goalId || '')
+    ) || null;
+}
+
+function buildGoalRecurringDepositTransaction(goal, existingId = '') {
+    const safeDay = Math.max(1, Math.min(28, Number(goal.depositDay) || 1));
+    const startDateRaw = goal.startDate || formatDateLocal(new Date());
+    const startDate = parseDateLocal(startDateRaw);
+    const y = startDate.getFullYear();
+    const m = startDate.getMonth();
+    const maxDay = new Date(y, m + 1, 0).getDate();
+    const date = formatDateLocal(new Date(y, m, Math.min(safeDay, maxDay)));
+
+    return {
+        id: existingId || `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        name: `הפקדה: ${goal.name}`,
+        amount: Number(goal.monthlyAmount) || 0,
+        type: 'savings_deposit',
+        date: date,
+        category: 'הפרשות לחסכון',
+        isRecurring: true,
+        frequency: 'monthly',
+        goalId: goal.id,
+        desc: 'הפקדה חודשית מיעד חיסכון'
+    };
+}
+
+function shouldHaveGoalRecurringDeposit(goal) {
+    if (!goal) return false;
+    return !!(goal.id && goal.startDate && Number(goal.monthlyAmount) > 0 && Number(goal.depositDay) >= 1);
+}
+
+function syncRecurringDepositWithGoal(goal, isEdit) {
+    const existing = getGoalRecurringDepositTransaction(goal.id);
+    const shouldHave = shouldHaveGoalRecurringDeposit(goal);
+
+    if (!shouldHave) {
+        if (existing) {
+            state.transactions = state.transactions.filter((t) => String(t.id) !== String(existing.id));
+            saveDataToGAS('deleteTransaction', { id: existing.id });
+        }
+        return;
+    }
+
+    const tx = buildGoalRecurringDepositTransaction(goal, existing ? existing.id : '');
+    if (existing || isEdit) {
+        state.transactions = state.transactions.map((t) => (String(t.id) === String(tx.id) ? { ...t, ...tx } : t));
+        saveDataToGAS('updateTransaction', tx);
+    } else {
+        state.transactions.push(tx);
+        saveDataToGAS('addTransaction', tx);
+    }
+}
+
+function ensureGoalRecurringTransactionsSyncedOnce() {
+    if (state.goalRecurringSyncDone) return;
+    state.goalRecurringSyncDone = true;
+
+    state.savingsGoals.forEach((goal) => {
+        const existing = getGoalRecurringDepositTransaction(goal.id);
+        if (!existing && shouldHaveGoalRecurringDeposit(goal)) {
+            const tx = buildGoalRecurringDepositTransaction(goal);
+            state.transactions.push(tx);
+            saveDataToGAS('addTransaction', tx);
+        }
+    });
+}
+
+function getNextMonthSameDay(dateStr) {
+    const base = parseDateLocal(dateStr);
+    const y = base.getFullYear();
+    const m = base.getMonth();
+    const d = base.getDate();
+    const maxDayNextMonth = new Date(y, m + 2, 0).getDate();
+    const next = new Date(y, m + 1, Math.min(d, maxDayNextMonth));
+    return formatDateLocal(next);
+}
+
+function checkVariableExpenseReminders() {
+    const basePath = state.currentPath.split('?')[0];
+    if (basePath === '/login' || basePath === '/onboarding') return;
+    if (state.reminderModalOpen) return;
+
+    const modalContainer = document.getElementById('modal-container');
+    if (!modalContainer || !modalContainer.classList.contains('hidden')) return;
+
+    const today = new Date();
+    const todayDay = today.getDate();
+    const yearMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`;
+    const cycleStart = getCycleDates(today).start;
+    const cycleMonth = cycleStart.getMonth();
+    const cycleYear = cycleStart.getFullYear();
+
+    const due = state.transactions
+        .filter((t) => t && t.type === 'variable_expense' && t.isRecurring && t.alert && t.date)
+        .filter((t) => {
+            const installmentStatus = getInstallmentStatus(t, cycleMonth, cycleYear);
+            return !installmentStatus.enabled || installmentStatus.active;
+        })
+        .filter((t) => {
+            const d = parseDateLocal(t.date);
+            return d.getDate() === todayDay;
+        })
+        .filter((t) => localStorage.getItem(getReminderStorageKey(t.id, yearMonth)) !== '1')
+        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'he'));
+
+    if (!due.length) return;
+    state.reminderModalOpen = true;
+    renderVariableExpenseReminderModal(due[0], yearMonth);
+}
+
+function renderVariableExpenseReminderModal(transaction, yearMonth) {
+    const html = `
+        <div class="space-y-5">
+            <div class="flex items-start justify-between">
+                <div>
+                    <h2 class="text-2xl font-black text-primary">תזכורת הוצאה משתנה</h2>
+                    <p class="text-sm text-on-surface-variant mt-1">שים/י לב, הגיע מועד עדכון ההוצאה:</p>
+                </div>
+                <button onclick="acknowledgeVariableExpenseReminder('${transaction.id}', '${yearMonth}', false)" class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-variant/50">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+
+            <div class="bg-surface-variant/20 rounded-2xl p-4 space-y-1">
+                <p class="font-extrabold text-lg">${transaction.name}</p>
+                <p class="text-on-surface-variant text-sm">תאריך נוכחי: ${transaction.date}</p>
+                <p class="text-rose-600 font-extrabold text-xl">${formatCurrency(transaction.amount)}</p>
+            </div>
+
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <button onclick="acknowledgeVariableExpenseReminder('${transaction.id}', '${yearMonth}', false)" class="h-12 rounded-xl bg-surface-variant/40 font-bold">
+                    אישור בלבד
+                </button>
+                <button onclick="acknowledgeVariableExpenseReminder('${transaction.id}', '${yearMonth}', true)" class="h-12 rounded-xl bg-primary text-white font-bold">
+                    אישור + עדכון לחודש הבא
+                </button>
+            </div>
+        </div>
+    `;
+    openModal(html);
+}
+
+function acknowledgeVariableExpenseReminder(transactionId, yearMonth, moveToNextMonth) {
+    localStorage.setItem(getReminderStorageKey(transactionId, yearMonth), '1');
+    state.reminderModalOpen = false;
+
+    if (moveToNextMonth) {
+        const tx = state.transactions.find((t) => String(t.id) === String(transactionId));
+        if (tx) {
+            const updated = { ...tx, date: getNextMonthSameDay(tx.date) };
+            state.transactions = state.transactions.map((t) => (String(t.id) === String(transactionId) ? updated : t));
+            saveDataToGAS('updateTransaction', updated);
+        }
+    }
+
+    closeModal();
+    render();
 }
 
 function renderLoadingOverlay() {
@@ -463,32 +803,32 @@ function renderHome() {
                     <div class="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center">
                         <span class="material-symbols-outlined">add</span>
                     </div>
-                    <span class="text-[10px] font-medium">הכנסה</span>
+                    <span class="text-xs font-semibold">הכנסה</span>
                 </button>
                 <button onclick="renderTransactionModal({ type: 'variable_expense' })" class="flex flex-col items-center gap-2 p-3 rounded-2xl bg-surface-variant/30 hover:bg-surface-variant/50 transition-colors">
                     <div class="w-12 h-12 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center">
                         <span class="material-symbols-outlined">remove</span>
                     </div>
-                    <span class="text-[10px] font-medium">הוצאה</span>
+                    <span class="text-xs font-semibold">הוצאה</span>
                 </button>
-                <button onclick="renderSavingsModal()" class="flex flex-col items-center gap-2 p-3 rounded-2xl bg-surface-variant/30 hover:bg-surface-variant/50 transition-colors">
+                <button onclick="renderSavingsActionModal()" class="flex flex-col items-center gap-2 p-3 rounded-2xl bg-surface-variant/30 hover:bg-surface-variant/50 transition-colors">
                     <div class="w-12 h-12 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center">
                         <span class="material-symbols-outlined">savings</span>
                     </div>
-                    <span class="text-[10px] font-medium">חיסכון</span>
+                    <span class="text-xs font-semibold">חיסכון</span>
                 </button>
                 <button onclick="renderAccountModal()" class="flex flex-col items-center gap-2 p-3 rounded-2xl bg-surface-variant/30 hover:bg-surface-variant/50 transition-colors">
                     <div class="w-12 h-12 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center">
                         <span class="material-symbols-outlined">account_balance</span>
                     </div>
-                    <span class="text-[10px] font-medium">חשבון</span>
+                    <span class="text-xs font-semibold">חשבון</span>
                 </button>
             </div>
 
             <!-- Savings Goals -->
             <section>
                 <div class="flex items-center justify-between mb-4">
-                    <h3 class="text-lg font-bold">החסכונות שלי</h3>
+                    <h3 class="text-2xl font-bold">החסכונות שלי</h3>
                     <button onclick="navigate('/savings')" class="text-sm text-primary font-medium">נהל הכל</button>
                 </div>
                 <div class="flex gap-4 overflow-x-auto no-scrollbar pb-2 -mx-4 px-4">
@@ -503,8 +843,8 @@ function renderHome() {
                                 <span class="text-[10px] font-bold ${goal.onContainer} opacity-60">${Math.round(progress)}%</span>
                             </div>
                             <div>
-                                <h4 class="font-bold text-sm ${goal.onContainer}">${goal.name}</h4>
-                                <p class="text-xs ${goal.onContainer} opacity-70">${formatCurrency(goal.current)} מתוך ${formatCurrency(goal.target)}</p>
+                                <h4 class="font-bold text-base ${goal.onContainer}">${goal.name}</h4>
+                                <p class="text-sm ${goal.onContainer} opacity-75">${formatCurrency(goal.current)} מתוך ${formatCurrency(goal.target)}</p>
                             </div>
                             <div class="w-full h-2 bg-white/50 rounded-full overflow-hidden">
                                 <div class="h-full ${goal.color}" style="width: ${progress}%"></div>
@@ -518,19 +858,22 @@ function renderHome() {
             <!-- Recent Transactions -->
             <section>
                 <div class="flex items-center justify-between mb-4">
-                    <h3 class="text-lg font-bold">תנועות אחרונות</h3>
+                    <h3 class="text-2xl font-bold">תנועות אחרונות</h3>
                     <button onclick="navigate('/transactions')" class="text-sm text-primary font-bold hover:underline">נהל הכל</button>
                 </div>
                 <div class="flex gap-3 overflow-x-auto no-scrollbar pb-2 -mx-4 px-4">
                     ${(() => {
                         const recentTransactions = [...currentTransactions]
-                            .sort((a, b) => new Date(b.date) - new Date(a.date))
+                            .sort(compareTransactionsByDateDesc)
                             .slice(0, 7);
                             
                         return recentTransactions.map(t => {
                             const isExpense = t.type.includes('expense') || t.type === 'savings_deposit';
                             const colorClass = isExpense ? 'bg-rose-50 text-rose-600' : 'bg-emerald-50 text-emerald-600';
                             const amountSign = isExpense ? '-' : '';
+                            const tDate = parseDateLocal(t.date);
+                            const installmentBadge = getInstallmentBadgeText(t, tDate.getMonth(), tDate.getFullYear());
+                            const displayName = t.name;
                             
                             return `
                                 <div onclick="renderTransactionModal(${JSON.stringify(t).replace(/"/g, '&quot;')})" class="min-w-[150px] bg-white rounded-2xl p-3 border border-surface-variant/30 shadow-sm flex flex-col gap-2 cursor-pointer hover:scale-[1.02] transition-transform">
@@ -538,11 +881,14 @@ function renderHome() {
                                         <div class="w-8 h-8 rounded-full ${colorClass} flex items-center justify-center">
                                             <span class="material-symbols-outlined text-sm">${TRANSACTION_TYPES[t.type]?.icon || 'receipt_long'}</span>
                                         </div>
-                                        <span class="text-[9px] text-on-surface-variant font-medium">${t.date.split('-').slice(1).reverse().join('/')}</span>
+                                        <div class="flex items-center gap-1.5">
+                                            ${installmentBadge ? `<span class="text-[9px] font-bold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-700">תשלומים ${installmentBadge}</span>` : ''}
+                                            <span class="text-xs text-on-surface-variant font-medium">${t.date.split('-').slice(1).reverse().join('/')}</span>
+                                        </div>
                                     </div>
                                     <div>
-                                        <h4 class="font-bold text-xs truncate">${t.name}</h4>
-                                        <p class="text-[9px] text-on-surface-variant truncate">${t.category || 'ללא קטגוריה'}</p>
+                                        <h4 class="font-bold text-sm truncate">${displayName}</h4>
+                                        <p class="text-xs text-on-surface-variant truncate">${t.category || 'ללא קטגוריה'}</p>
                                     </div>
                                     <p class="font-bold text-sm ${isExpense ? 'text-rose-600' : 'text-emerald-600'}">${amountSign}${formatCurrency(t.amount)}</p>
                                 </div>
@@ -558,13 +904,13 @@ function renderHome() {
                 <div class="flex border-b border-surface-variant/30">
                     <button onclick="switchHomeChart('trend')" class="flex-1 py-3 flex items-center justify-center gap-2 transition-colors ${state.activeHomeChart === 'trend' ? 'bg-white text-on-surface' : 'bg-surface-variant/20 text-on-surface-variant'}">
                         <span class="material-symbols-outlined text-lg">bar_chart</span>
-                        <span class="font-bold text-xs">גרף חודשים</span>
+                        <span class="font-bold text-sm">גרף חודשים</span>
                         <span class="material-symbols-outlined text-base">${state.activeHomeChart === 'trend' ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}</span>
                     </button>
                     <div class="w-[1px] bg-surface-variant/30"></div>
                     <button onclick="switchHomeChart('category')" class="flex-1 py-3 flex items-center justify-center gap-2 transition-colors ${state.activeHomeChart === 'category' ? 'bg-white text-on-surface' : 'bg-surface-variant/20 text-on-surface-variant'}">
                         <span class="material-symbols-outlined text-lg">donut_large</span>
-                        <span class="font-bold text-xs">גרף קטגוריות</span>
+                        <span class="font-bold text-sm">גרף קטגוריות</span>
                         <span class="material-symbols-outlined text-base">${state.activeHomeChart === 'category' ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}</span>
                     </button>
                 </div>
@@ -572,17 +918,9 @@ function renderHome() {
                 <!-- Content -->
                 <div class="p-3">
                     ${state.activeHomeChart === 'category' ? `
-                        <div class="flex flex-row-reverse gap-5 items-center">
-                            <!-- Doughnut Chart -->
-                            <div class="w-40 h-40 relative shrink-0">
-                                <canvas id="categoryChart"></canvas>
-                                <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
-                                    <p class="text-lg leading-tight text-center text-on-surface">עסקאות<br>החודש</p>
-                                </div>
-                            </div>
-
-                            <!-- Category List -->
-                            <div class="flex-1 w-full space-y-2">
+                        <div class="home-cat-wrap">
+                            <!-- Category List (Left) -->
+                            <div class="home-cat-list">
                                 ${(() => {
                                     const currentTransactions = getFilteredTransactions('all');
                                     const expenses = currentTransactions.filter(t => t.type.includes('expense'));
@@ -591,29 +929,36 @@ function renderHome() {
                                         const cat = t.category || 'אחר';
                                         categoryTotals[cat] = (categoryTotals[cat] || 0) + t.amount;
                                     });
-                                    
-                                    // Sort by amount descending and take top 5
+
                                     return Object.entries(categoryTotals)
                                         .sort(([, a], [, b]) => b - a)
                                         .slice(0, 5)
                                         .map(([cat, amount]) => {
                                             const categoryObj = state.categories.find(c => c.name === cat) || { icon: 'category' };
                                             return `
-                                                <div class="flex items-center justify-between">
-                                                    <div class="text-right">
-                                                        <p class="font-black text-xl leading-tight">${formatCurrency(amount)}</p>
-                                                        <p class="text-[9px] text-on-surface-variant leading-tight">${cat}</p>
+                                                <div class="home-cat-item">
+                                                    <div class="home-cat-amount-row">
+                                                        <span class="home-cat-amount">${formatCurrency(amount)}</span>
+                                                        <span class="material-symbols-outlined home-cat-icon">${categoryObj.icon}</span>
                                                     </div>
-                                                    <div class="w-7 h-7 rounded-md bg-surface-variant/30 flex items-center justify-center text-primary">
-                                                        <span class="material-symbols-outlined text-sm">${categoryObj.icon}</span>
-                                                    </div>
+                                                    <p class="home-cat-name">${cat}</p>
                                                 </div>
                                             `;
                                         }).join('');
                                 })()}
                             </div>
+
+                            <!-- Doughnut Chart (Right) -->
+                            <div class="home-cat-donut-col">
+                                <div class="home-cat-donut-box">
+                                    <canvas id="categoryChart"></canvas>
+                                    <div class="home-cat-donut-label">
+                                        <p>עסקאות<br>החודש</p>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
-                        <div class="mt-3 text-center">
+                        <div class="mt-2 text-center">
                             <button onclick="navigate('/transactions')" class="text-cyan-500 font-black text-xl flex items-center justify-center gap-1 mx-auto">
                                 לכל הקטגוריות >
                             </button>
@@ -641,21 +986,66 @@ function renderTransactions() {
     // "Remaining to spend" must always reflect the full current cycle, not the active list filter.
     const allCycleTransactions = getFilteredTransactions('all');
     const income = allCycleTransactions.filter(t => t.type.includes('income')).reduce((sum, t) => sum + t.amount, 0);
-    const expenses = allCycleTransactions.filter(t => t.type.includes('expense') || t.type === 'savings_deposit').reduce((sum, t) => sum + t.amount, 0);
-    const remaining = income - expenses;
+    const expenses = allCycleTransactions.filter(t => t.type.includes('expense')).reduce((sum, t) => sum + t.amount, 0);
+    const savings = allCycleTransactions.filter(t => t.type === 'savings_deposit').reduce((sum, t) => sum + t.amount, 0);
+    const remaining = income - expenses - savings;
+    const totalAssets = state.accountBalances.reduce((sum, acc) => sum + acc.amount, 0);
 
     return `
-        <div class="space-y-8 pb-10">
+        <div class="space-y-6 pb-10">
             <!-- Remaining to Spend -->
-            <div class="bg-surface-variant/20 p-8 rounded-[40px] text-center border border-surface-variant/30">
-                <p class="text-sm font-bold text-on-surface-variant uppercase tracking-widest mb-2">נותר לבזבז החודש</p>
-                <h2 class="text-5xl font-black text-primary tracking-tighter">${formatCurrency(remaining)}</h2>
+            <div class="bg-primary rounded-3xl p-6 text-on-primary shadow-lg shadow-primary/20 relative overflow-hidden mt-4">
+                <div class="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl"></div>
+                <div class="relative z-10">
+                    <p class="text-sm opacity-80 mb-1">יתרה שנותרה לבזבוז החודש</p>
+                    <h2 class="text-3xl font-bold mb-1">${formatCurrency(remaining)}</h2>
+                    <p class="text-[10px] opacity-60 mb-6">סה״כ נכסים: ${formatCurrency(totalAssets)}</p>
+                    
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="bg-white/10 rounded-2xl p-3 backdrop-blur-sm">
+                            <p class="text-[10px] opacity-80 uppercase tracking-wider mb-1">הכנסות החודש</p>
+                            <p class="text-lg font-bold">${formatCurrency(income)}</p>
+                        </div>
+                        <div class="bg-white/10 rounded-2xl p-3 backdrop-blur-sm">
+                            <p class="text-[10px] opacity-80 uppercase tracking-wider mb-1">הוצאות והפרשות</p>
+                            <p class="text-lg font-bold">${formatCurrency(expenses + savings)}</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Quick Actions -->
+            <div class="grid grid-cols-4 gap-2">
+                <button onclick="renderTransactionModal({ type: 'variable_income' })" class="flex flex-col items-center gap-2 p-3 rounded-2xl bg-surface-variant/30 hover:bg-surface-variant/50 transition-colors">
+                    <div class="w-12 h-12 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center">
+                        <span class="material-symbols-outlined">add</span>
+                    </div>
+                    <span class="text-xs font-semibold">הכנסה</span>
+                </button>
+                <button onclick="renderTransactionModal({ type: 'variable_expense' })" class="flex flex-col items-center gap-2 p-3 rounded-2xl bg-surface-variant/30 hover:bg-surface-variant/50 transition-colors">
+                    <div class="w-12 h-12 rounded-full bg-rose-100 text-rose-700 flex items-center justify-center">
+                        <span class="material-symbols-outlined">remove</span>
+                    </div>
+                    <span class="text-xs font-semibold">הוצאה</span>
+                </button>
+                <button onclick="renderSavingsActionModal()" class="flex flex-col items-center gap-2 p-3 rounded-2xl bg-surface-variant/30 hover:bg-surface-variant/50 transition-colors">
+                    <div class="w-12 h-12 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center">
+                        <span class="material-symbols-outlined">savings</span>
+                    </div>
+                    <span class="text-xs font-semibold">חיסכון</span>
+                </button>
+                <button onclick="renderAccountModal()" class="flex flex-col items-center gap-2 p-3 rounded-2xl bg-surface-variant/30 hover:bg-surface-variant/50 transition-colors">
+                    <div class="w-12 h-12 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center">
+                        <span class="material-symbols-outlined">account_balance</span>
+                    </div>
+                    <span class="text-xs font-semibold">חשבון</span>
+                </button>
             </div>
 
             <!-- Actions Title -->
             <div class="px-2">
                 <h3 class="text-2xl font-bold mb-1">פעולות במחזור החודשי</h3>
-                <p class="text-on-surface-variant text-sm">ניהול ומעקב אחר כל התנועות הכספיות שלך.</p>
+                <p class="text-on-surface-variant text-base">ניהול ומעקב אחר כל התנועות הכספיות שלך.</p>
             </div>
 
             <!-- Categories -->
@@ -672,7 +1062,7 @@ function renderTransactions() {
             <!-- Filter Navigation -->
             <div class="flex bg-surface-variant/20 p-1.5 rounded-2xl">
                 ${['all', 'fixed', 'variable', 'income', 'expense'].map(f => `
-                    <button onclick="updateTransactionFilter('filter', '${f}')" class="flex-1 py-2.5 rounded-xl text-xs font-bold transition-all ${filterType === f ? 'bg-white text-primary shadow-sm' : 'text-on-surface-variant'}">
+                    <button onclick="updateTransactionFilter('filter', '${f}')" class="flex-1 py-2.5 rounded-xl text-base font-bold transition-all ${filterType === f ? 'bg-white text-primary shadow-sm' : 'text-on-surface-variant'}">
                         ${f === 'all' ? 'הכל' : f === 'fixed' ? 'קבועות' : f === 'variable' ? 'משתנות' : f === 'income' ? 'הכנסות' : 'הוצאות'}
                     </button>
                 `).join('')}
@@ -680,29 +1070,34 @@ function renderTransactions() {
 
             <!-- Transaction List -->
             <div class="space-y-4">
-                ${categoryFiltered.length > 0 ? categoryFiltered.sort((a, b) => new Date(b.date) - new Date(a.date)).map(t => `
+                ${categoryFiltered.length > 0 ? categoryFiltered.sort(compareTransactionsByDateDesc).map(t => {
+                    const tDate = parseDateLocal(t.date);
+                    const installmentBadge = getInstallmentBadgeText(t, tDate.getMonth(), tDate.getFullYear());
+                    const displayName = t.name;
+                    return `
                     <div onclick="renderTransactionModal(${JSON.stringify(t).replace(/"/g, '&quot;')})" class="bg-white p-5 rounded-3xl flex items-center justify-between shadow-sm border border-surface-variant/10 active:scale-[0.98] transition-all cursor-pointer">
                         <div class="flex items-center gap-4">
                             <div class="w-12 h-12 rounded-2xl ${TRANSACTION_TYPES[t.type].color.replace('text', 'bg')}/10 flex items-center justify-center ${TRANSACTION_TYPES[t.type].color}">
                                 <span class="material-symbols-outlined text-2xl">${TRANSACTION_TYPES[t.type].icon}</span>
                             </div>
                             <div>
-                                <p class="font-extrabold text-on-surface">${t.name}</p>
+                                <p class="font-extrabold text-on-surface">${displayName}</p>
                                 <div class="flex items-center gap-2">
-                                    <span class="text-[10px] font-bold text-on-surface-variant uppercase opacity-60">${t.category || 'כללי'}</span>
+                                    <span class="text-xs font-bold text-on-surface-variant uppercase opacity-70">${t.category || 'כללי'}</span>
                                     <span class="w-1 h-1 bg-surface-variant rounded-full"></span>
-                                    <span class="text-[10px] font-bold text-on-surface-variant opacity-60">${t.date}</span>
+                                    <span class="text-xs font-bold text-on-surface-variant opacity-70">${t.date}</span>
+                                    ${installmentBadge ? `<span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">תשלומים ${installmentBadge}</span>` : ''}
                                 </div>
                             </div>
                         </div>
                         <div class="text-left">
-                            <p class="font-black text-lg ${t.type.includes('income') ? 'text-emerald-600' : 'text-rose-600'}">
-                                ${t.type.includes('income') ? '+' : '-'}${formatCurrency(t.amount)}
+                            <p class="font-black text-lg ${t.type === 'savings_deposit' ? 'text-blue-600' : (t.type.includes('income') ? 'text-emerald-600' : 'text-rose-600')}">
+                                ${t.type.includes('income') ? '' : '-'}${formatCurrency(t.amount)}
                             </p>
-                            ${t.isRecurring ? '<span class="text-[8px] font-bold bg-surface-variant/30 px-1.5 py-0.5 rounded-full uppercase tracking-tighter">קבוע</span>' : ''}
+                            ${(!t.isInstallments && t.isRecurring) ? '<span class="text-[8px] font-bold bg-surface-variant/30 px-1.5 py-0.5 rounded-full uppercase tracking-tighter">קבוע</span>' : ''}
                         </div>
                     </div>
-                `).join('') : `
+                `;}).join('') : `
                     <div class="text-center py-20 opacity-40">
                         <span class="material-symbols-outlined text-6xl mb-4">history</span>
                         <p class="font-bold">אין תנועות להצגה</p>
@@ -720,6 +1115,35 @@ function updateTransactionFilter(key, value) {
     navigate(`/transactions?${urlParams.toString()}`);
 }
 
+function handleQuickAddFromHash() {
+    const basePath = state.currentPath.split('?')[0];
+    if (basePath !== '/transactions') return;
+
+    const params = getHashParams();
+    if (params.get('quickAdd') !== '1') return;
+
+    const merchant = String(params.get('merchant') || '').trim();
+    const amount = Number(params.get('amount') || 0);
+    const date = String(params.get('date') || formatDateLocal(new Date())).trim();
+    const type = String(params.get('type') || 'variable_expense').trim();
+    const signature = [merchant, amount, date, type].join('|');
+
+    if (!merchant || !amount || state.quickAddLastHandled === signature) return;
+    state.quickAddLastHandled = signature;
+
+    setTimeout(() => {
+        renderTransactionModal({
+            name: merchant,
+            amount: amount,
+            date: date,
+            type: type,
+            category: 'אחר',
+            isRecurring: false,
+            desc: merchant
+        });
+    }, 0);
+}
+
 function renderSavings() {
     const totalTarget = state.savingsGoals.reduce((acc, goal) => acc + goal.target, 0);
     const totalCurrent = state.savingsGoals.reduce((acc, goal) => acc + goal.current, 0);
@@ -734,29 +1158,22 @@ function renderSavings() {
     return `
         <div class="space-y-8 pb-10">
             <!-- Summary Section -->
-            <section class="bg-white p-8 rounded-3xl border border-surface-variant/30 shadow-sm space-y-8 relative overflow-hidden">
-                <div class="absolute top-0 right-0 w-64 h-64 bg-primary/5 rounded-full -mr-20 -mt-20 blur-3xl"></div>
-                
-                <div class="relative z-10 text-center space-y-2">
-                    <span class="text-on-surface-variant font-bold text-xs uppercase tracking-widest">סה״כ נחסך</span>
-                    <div class="flex flex-col items-center gap-2">
-                        <h2 class="text-4xl font-black text-primary tracking-tighter">${formatCurrency(totalCurrent, false)}</h2>
-                        <div class="flex items-center gap-2">
-                            <span class="text-primary font-bold text-xs bg-primary-container px-3 py-1 rounded-full shadow-sm">
-                                ${totalTarget > 0 ? Math.round((totalCurrent / totalTarget) * 100) : 0}% מהיעד הכולל
-                            </span>
-                        </div>
-                    </div>
-                </div>
+            <section class="bg-primary rounded-3xl p-6 text-on-primary shadow-lg shadow-primary/20 relative overflow-hidden mt-4">
+                <div class="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl"></div>
+                <div class="relative z-10">
+                    <p class="text-sm opacity-80 mb-1">סה״כ נחסך</p>
+                    <h2 class="text-3xl font-bold mb-1">${formatCurrency(totalCurrent, false)}</h2>
+                    <p class="text-[10px] opacity-70 mb-6">${totalTarget > 0 ? Math.round((totalCurrent / totalTarget) * 100) : 0}% מהיעד הכולל</p>
 
-                <div class="relative z-10 grid grid-cols-2 gap-0 pt-6 border-t border-surface-variant/30">
-                    <div class="flex flex-col items-center border-l border-surface-variant/30">
-                        <p class="text-primary font-bold text-[10px] uppercase tracking-widest mb-1 opacity-70">הוקצה החודש</p>
-                        <h3 class="text-2xl font-extrabold text-primary tracking-tighter">${formatCurrency(monthlySavings, false)}</h3>
-                    </div>
-                    <div class="flex flex-col items-center">
-                        <p class="text-on-surface-variant font-bold text-[10px] uppercase tracking-widest mb-1 opacity-70">נותר ליעד</p>
-                        <h3 class="text-2xl font-extrabold text-on-surface tracking-tighter">${formatCurrency(totalRemaining, false)}</h3>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div class="bg-white/10 rounded-2xl p-3 backdrop-blur-sm">
+                            <p class="text-[10px] opacity-80 uppercase tracking-wider mb-1">הוקצה החודש</p>
+                            <p class="text-lg font-bold">${formatCurrency(monthlySavings, false)}</p>
+                        </div>
+                        <div class="bg-white/10 rounded-2xl p-3 backdrop-blur-sm">
+                            <p class="text-[10px] opacity-80 uppercase tracking-wider mb-1">נותר ליעד</p>
+                            <p class="text-lg font-bold">${formatCurrency(totalRemaining, false)}</p>
+                        </div>
                     </div>
                 </div>
             </section>
@@ -911,7 +1328,7 @@ function renderForecast() {
             <div class="space-y-6">
                 <h3 class="text-2xl font-bold px-2">פירוט חודשי צפוי</h3>
                 <div class="space-y-4">
-                    ${forecastData.map(item => `
+                    ${forecastData.map((item, index) => `
                         <div class="bg-white p-6 rounded-3xl border border-surface-variant/30 shadow-sm">
                             <div class="flex items-center justify-between mb-4">
                                 <div class="flex items-center gap-3">
@@ -920,17 +1337,17 @@ function renderForecast() {
                                     </div>
                                     <h4 class="text-lg font-extrabold">${item.fullMonth}</h4>
                                 </div>
-                                <div class="text-left group relative">
-                                    <div class="rounded-2xl px-4 py-2.5 bg-primary-container border border-primary/20 shadow-sm">
-                                        <p class="text-[10px] font-bold text-on-primary-container/70 uppercase tracking-wider">יתרה סופית</p>
-                                        <p class="text-xl font-black text-on-primary-container leading-tight">${formatCurrency(item.total)}</p>
-                                        <p class="text-[10px] text-on-primary-container/70 mt-1">
+                                <div class="text-left relative">
+                                    <button onclick="toggleForecastTooltip('total-${index}')" class="text-left">
+                                        <p class="text-sm font-bold text-primary/70 uppercase tracking-wider">יתרה סופית</p>
+                                        <p class="text-2xl font-black text-primary leading-tight">${formatCurrency(item.total)}</p>
+                                        <p class="text-xs text-primary/80 mt-1">
                                             עו״ש: ${formatCurrency(item.checking, false)} | חיסכון: ${formatCurrency(item.savings, false)}
                                         </p>
-                                    </div>
+                                    </button>
 
                                     <!-- Tooltip -->
-                                    <div class="absolute hidden group-hover:block group-active:block z-20 bottom-full left-0 mb-2 bg-surface-variant p-3 rounded-2xl shadow-xl border border-primary/20 min-w-[220px] text-right animate-in fade-in slide-in-from-bottom-1">
+                                    <div class="absolute ${state.forecastTooltipOpen === `total-${index}` ? 'block' : 'hidden'} z-20 bottom-full left-0 mb-2 bg-surface-variant p-3 rounded-2xl shadow-xl border border-primary/20 min-w-[220px] text-right animate-in fade-in slide-in-from-bottom-1">
                                         <p class="font-bold text-xs border-b border-primary/10 pb-1 mb-2">חישוב יתרה</p>
                                         <div class="space-y-1.5">
                                             <div class="flex justify-between gap-4">
@@ -958,12 +1375,14 @@ function renderForecast() {
                                 </div>
                             </div>
                             <div class="grid grid-cols-3 gap-2 pt-4 border-t border-surface-variant/10">
-                                <div class="group relative">
-                                    <p class="text-[9px] font-bold text-on-surface-variant opacity-60 uppercase">הכנסות</p>
-                                    <p class="text-xs font-bold text-emerald-600">${formatCurrency(item.income)}</p>
+                                <div class="relative">
+                                    <button onclick="toggleForecastTooltip('income-${index}')" class="text-right">
+                                        <p class="text-sm font-bold text-on-surface-variant opacity-80 uppercase">הכנסות</p>
+                                        <p class="text-lg font-black text-emerald-600">${formatCurrency(item.income)}</p>
+                                    </button>
                                     
                                     <!-- Tooltip -->
-                                    <div class="absolute hidden group-hover:block group-active:block z-20 bottom-full right-0 mb-2 bg-white p-3 rounded-2xl shadow-xl border border-emerald-100 min-w-[160px] text-right animate-in fade-in slide-in-from-bottom-1">
+                                    <div class="absolute ${state.forecastTooltipOpen === `income-${index}` ? 'block' : 'hidden'} z-20 bottom-full right-0 mb-2 bg-white p-3 rounded-2xl shadow-xl border border-emerald-100 min-w-[160px] text-right animate-in fade-in slide-in-from-bottom-1">
                                         <p class="font-bold text-[10px] text-emerald-700 border-b border-emerald-50 pb-1 mb-2">פירוט הכנסות</p>
                                         <div class="space-y-2">
                                             ${item.incomeItems.length > 0 ? item.incomeItems.map(ii => `
@@ -978,12 +1397,14 @@ function renderForecast() {
                                         </div>
                                     </div>
                                 </div>
-                                <div class="group relative">
-                                    <p class="text-[9px] font-bold text-on-surface-variant opacity-60 uppercase">הוצאות</p>
-                                    <p class="text-xs font-bold text-rose-600">${formatCurrency(-item.expense)}</p>
+                                <div class="relative">
+                                    <button onclick="toggleForecastTooltip('expense-${index}')" class="text-right">
+                                        <p class="text-sm font-bold text-on-surface-variant opacity-80 uppercase">הוצאות</p>
+                                        <p class="text-lg font-black text-rose-600">${formatCurrency(-item.expense)}</p>
+                                    </button>
                                     
                                     <!-- Tooltip -->
-                                    <div class="absolute hidden group-hover:block group-active:block z-20 bottom-full right-1/2 translate-x-1/2 mb-2 bg-white p-3 rounded-2xl shadow-xl border border-rose-100 min-w-[160px] text-right animate-in fade-in slide-in-from-bottom-1">
+                                    <div class="absolute ${state.forecastTooltipOpen === `expense-${index}` ? 'block' : 'hidden'} z-20 bottom-full right-1/2 translate-x-1/2 mb-2 bg-white p-3 rounded-2xl shadow-xl border border-rose-100 min-w-[160px] text-right animate-in fade-in slide-in-from-bottom-1">
                                         <p class="font-bold text-[10px] text-rose-700 border-b border-rose-50 pb-1 mb-2">פירוט הוצאות</p>
                                         <div class="space-y-2">
                                             ${item.expenseItems.length > 0 ? item.expenseItems.map(ei => `
@@ -991,19 +1412,21 @@ function renderForecast() {
                                                     <span class="font-bold text-[10px] text-rose-600">${formatCurrency(-ei.amount)}</span>
                                                     <div class="text-right">
                                                         <p class="font-bold text-[9px] leading-tight">${ei.name}</p>
-                                                        <p class="text-[8px] text-on-surface-variant opacity-60">${ei.date.split('-').reverse().slice(0,2).join('/')}</p>
+                                                        <p class="text-[8px] text-on-surface-variant opacity-60">${ei.date.split('-').reverse().slice(0,2).join('/')} ${ei.installmentBadge ? `• תשלומים ${ei.installmentBadge}` : ''}</p>
                                                     </div>
                                                 </div>
                                             `).join('') : '<p class="text-[9px] text-on-surface-variant italic">אין הוצאות החודש</p>'}
                                         </div>
                                     </div>
                                 </div>
-                                <div class="group relative">
-                                    <p class="text-[9px] font-bold text-on-surface-variant opacity-60 uppercase">חיסכון</p>
-                                    <p class="text-xs font-bold text-blue-600">${formatCurrency(-item.saving)}</p>
+                                <div class="relative">
+                                    <button onclick="toggleForecastTooltip('saving-${index}')" class="text-right">
+                                        <p class="text-sm font-bold text-on-surface-variant opacity-80 uppercase">חיסכון</p>
+                                        <p class="text-lg font-black text-blue-600">${formatCurrency(-item.saving)}</p>
+                                    </button>
                                     
                                     <!-- Tooltip -->
-                                    <div class="absolute hidden group-hover:block group-active:block z-20 bottom-full left-0 mb-2 bg-white p-3 rounded-2xl shadow-xl border border-blue-100 min-w-[160px] text-right animate-in fade-in slide-in-from-bottom-1">
+                                    <div class="absolute ${state.forecastTooltipOpen === `saving-${index}` ? 'block' : 'hidden'} z-20 bottom-full left-0 mb-2 bg-white p-3 rounded-2xl shadow-xl border border-blue-100 min-w-[160px] text-right animate-in fade-in slide-in-from-bottom-1">
                                         <p class="font-bold text-[10px] text-blue-700 border-b border-blue-50 pb-1 mb-2">פירוט חיסכון</p>
                                         <div class="space-y-2">
                                             ${item.savingsItems.length > 0 ? item.savingsItems.map(si => `
@@ -1061,6 +1484,62 @@ function generateForecastData() {
         return true;
     }
 
+    function transactionAppliesForMonth(transaction, monthIndex, year) {
+        const installmentStatus = getInstallmentStatus(transaction, monthIndex, year);
+        if (installmentStatus.enabled) return installmentStatus.active;
+
+        if (transaction.isRecurring) {
+            return appliesByFrequency(transaction, monthIndex, year);
+        }
+
+        const tDate = new Date(transaction.date);
+        return tDate.getMonth() === monthIndex && tDate.getFullYear() === year;
+    }
+
+    function goalAppliesForMonth(goal, monthIndex, year) {
+        const monthly = Number(goal?.monthlyAmount) || 0;
+        if (monthly <= 0) return false;
+        const startDate = new Date(goal?.startDate || `${year}-${String(monthIndex + 1).padStart(2, '0')}-01`);
+        const monthsPassed = (year - startDate.getFullYear()) * 12 + (monthIndex - startDate.getMonth());
+        if (monthsPassed < 0) return false;
+        const effectiveDuration = getGoalRemainingMonths(goal);
+        return monthsPassed < effectiveDuration;
+    }
+
+    function getCanonicalSavingsTransactions() {
+        const recurringByGoalId = new Map();
+        const direct = [];
+
+        state.transactions.forEach((t) => {
+            if (!t || t.type !== 'savings_deposit') return;
+            if (Number(t.amount) <= 0) return;
+
+            const goalId = String(t.goalId || '').trim();
+            if (t.isRecurring && goalId) {
+                // Keep latest occurrence for each goal (legacy duplicate safety).
+                recurringByGoalId.set(goalId, t);
+                return;
+            }
+
+            direct.push(t);
+        });
+
+        return {
+            direct,
+            recurringByGoalId
+        };
+    }
+
+    function isRecurringSavingsSkippedForMonth(transaction, monthIndex, year) {
+        if (!transaction || !transaction.isRecurring) return false;
+        const skipped = getSkippedCycleSetFromTransaction(transaction);
+        if (!skipped.size) return false;
+        const cycleKey = `${year}-${String(monthIndex + 1).padStart(2, '0')}`;
+        return skipped.has(cycleKey);
+    }
+
+    const canonicalSavings = getCanonicalSavingsTransactions();
+
     for (let i = 0; i < 12; i++) {
         const forecastDate = new Date(startYear, startMonth + i, 1);
         const monthIndex = forecastDate.getMonth();
@@ -1093,8 +1572,14 @@ function generateForecastData() {
         const fixedExpenses = state.transactions
             .filter(t => t.type === 'fixed_expense')
             .reduce((sum, t) => {
-                if (appliesByFrequency(t, monthIndex, year)) {
-                    expenseItems.push({ name: t.name, amount: t.amount, date: t.date });
+                if (transactionAppliesForMonth(t, monthIndex, year)) {
+                    const installmentBadge = getInstallmentBadgeText(t, monthIndex, year);
+                    expenseItems.push({
+                        name: t.name,
+                        installmentBadge: installmentBadge,
+                        amount: t.amount,
+                        date: t.date
+                    });
                     return sum + t.amount;
                 }
                 return sum;
@@ -1104,42 +1589,63 @@ function generateForecastData() {
         const variableExpenses = state.transactions
             .filter(t => t.type === 'variable_expense')
             .reduce((sum, t) => {
-                const tDate = new Date(t.date);
-                if (tDate.getMonth() === monthIndex && tDate.getFullYear() === year) {
-                    expenseItems.push({ name: t.name, amount: t.amount, date: t.date });
+                if (transactionAppliesForMonth(t, monthIndex, year)) {
+                    const installmentBadge = getInstallmentBadgeText(t, monthIndex, year);
+                    expenseItems.push({
+                        name: t.name,
+                        installmentBadge: installmentBadge,
+                        amount: t.amount,
+                        date: t.date
+                    });
                     return sum + t.amount;
                 }
                 return sum;
             }, 0);
             
         const savingsItems = [];
-        const savingsDepositFromGoals = state.savingsGoals.reduce((sum, goal) => {
-            const startDate = new Date(goal.startDate || '2026-01-01');
-            const monthsPassed = (year - startDate.getFullYear()) * 12 + (monthIndex - startDate.getMonth());
-            const effectiveDuration = getGoalRemainingMonths(goal);
-            
-            if (monthsPassed >= 0 && monthsPassed < effectiveDuration) {
-                savingsItems.push({ name: goal.name, amount: goal.monthlyAmount || 0 });
-                return sum + (goal.monthlyAmount || 0);
-            }
-            return sum;
-        }, 0);
 
-        const savingsDepositFromTransactions = state.transactions
-            .filter(t => t.type === 'savings_deposit')
-            .reduce((sum, t) => {
-                if (t.isRecurring || t.type === 'savings_deposit') {
-                    if (t.isRecurring ? appliesByFrequency({ ...t, frequency: t.frequency || 'monthly' }, monthIndex, year) : true) {
-                        const tDate = new Date(t.date);
-                        const exactMonth = tDate.getMonth() === monthIndex && tDate.getFullYear() === year;
-                        if (t.isRecurring || exactMonth) {
-                            savingsItems.push({ name: t.name, amount: t.amount });
-                            return sum + t.amount;
-                        }
-                    }
-                }
-                return sum;
-            }, 0);
+        // Source of truth:
+        // 1) recurring savings transactions linked to goals (canonical, deduped by goalId)
+        // 2) direct savings transactions (one-time or recurring without goalId)
+        // 3) fallback to goal.monthlyAmount only when no recurring tx exists for that goal
+        let savingsDepositFromTransactions = 0;
+
+        canonicalSavings.recurringByGoalId.forEach((t, goalId) => {
+            const goal = state.savingsGoals.find((g) => String(g.id) === String(goalId));
+            if (goal && !goalAppliesForMonth(goal, monthIndex, year)) return;
+            if (isRecurringSavingsSkippedForMonth(t, monthIndex, year)) return;
+            if (!appliesByFrequency({ ...t, frequency: t.frequency || 'monthly' }, monthIndex, year)) return;
+            savingsItems.push({ name: t.name, amount: t.amount });
+            savingsDepositFromTransactions += t.amount;
+        });
+
+        canonicalSavings.direct.forEach((t) => {
+            if (t.isRecurring) {
+                if (isRecurringSavingsSkippedForMonth(t, monthIndex, year)) return;
+                if (!appliesByFrequency({ ...t, frequency: t.frequency || 'monthly' }, monthIndex, year)) return;
+                savingsItems.push({ name: t.name, amount: t.amount });
+                savingsDepositFromTransactions += t.amount;
+                return;
+            }
+
+            const tDate = new Date(t.date);
+            const exactMonth = tDate.getMonth() === monthIndex && tDate.getFullYear() === year;
+            if (!exactMonth) return;
+            savingsItems.push({ name: t.name, amount: t.amount });
+            savingsDepositFromTransactions += t.amount;
+        });
+
+        const savingsDepositFromGoalsFallback = state.savingsGoals.reduce((sum, goal) => {
+            const gid = String(goal.id || '').trim();
+            if (!gid) return sum;
+            if (canonicalSavings.recurringByGoalId.has(gid)) return sum;
+            if (!goalAppliesForMonth(goal, monthIndex, year)) return sum;
+
+            const monthly = Number(goal.monthlyAmount) || 0;
+            if (monthly <= 0) return sum;
+            savingsItems.push({ name: `הפקדה: ${goal.name}`, amount: monthly });
+            return sum + monthly;
+        }, 0);
 
         if (i === 0) {
             if (existingSavingsFromAccounts > 0) {
@@ -1152,7 +1658,7 @@ function generateForecastData() {
         
         const incomeTotal = fixedIncome + variableIncome;
         const expenseTotal = fixedExpenses + variableExpenses;
-        const savingsDeposit = savingsDepositFromGoals + savingsDepositFromTransactions;
+        const savingsDeposit = savingsDepositFromTransactions + savingsDepositFromGoalsFallback;
         const monthlyNet = incomeTotal - expenseTotal - savingsDeposit;
         const openingChecking = currentChecking;
         const openingSavings = currentSavings;
@@ -1182,7 +1688,7 @@ function generateForecastData() {
 }
 
 function renderSettings() {
-    const fixedExpenses = state.transactions.filter(t => t.type === 'fixed_expense');
+    const fixedExpenses = state.transactions.filter(t => t.type === 'fixed_expense' || (t.type === 'variable_expense' && t.isRecurring));
     const fixedIncome = state.transactions.filter(t => t.type === 'fixed_income');
 
     return `
@@ -1289,7 +1795,7 @@ function renderSettings() {
                 <div class="flex items-center justify-between">
                     <div class="flex items-center gap-2">
                         <span class="material-symbols-outlined text-rose-600">receipt_long</span>
-                        <h3 class="text-lg font-bold">הוצאות קבועות</h3>
+                        <h3 class="text-lg font-bold">הוצאות קבועות ומתעדכנות</h3>
                     </div>
                     <button onclick="renderTransactionModal({ type: 'fixed_expense' })" class="text-rose-600 font-bold text-sm flex items-center gap-1 hover:underline">
                         <span class="material-symbols-outlined text-sm">add_circle</span>
@@ -1297,25 +1803,58 @@ function renderSettings() {
                     </button>
                 </div>
                 <div class="space-y-3">
-                    ${fixedExpenses.map(item => `
+                    ${fixedExpenses.map(item => {
+                        const cycleStart = getCycleDates().start;
+                        const installmentBadge = getInstallmentBadgeText(item, cycleStart.getMonth(), cycleStart.getFullYear());
+                        const displayName = item.name;
+                        return `
                         <div onclick="renderTransactionModal(${JSON.stringify(item).replace(/"/g, '&quot;')})" class="bg-white p-4 rounded-2xl flex items-center justify-between shadow-sm border border-surface-variant/30 cursor-pointer active:scale-[0.98] transition-all">
                             <div class="flex items-center gap-4">
                                 <div class="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center text-rose-600">
                                     <span class="material-symbols-outlined">home</span>
                                 </div>
                                 <div>
-                                    <p class="font-bold">${item.name}</p>
+                                    <p class="font-bold">${displayName}</p>
                                     <div class="flex items-center gap-2">
-                                        <span class="px-2 py-0.5 bg-rose-50 text-rose-700 text-[10px] rounded-full font-bold">${((FREQUENCIES[item?.frequency]) || { label: 'חודשי' }).label}</span>
+                                        ${item.isInstallments && installmentBadge
+                                            ? `<span class="px-2 py-0.5 bg-blue-50 text-blue-700 text-[10px] rounded-full font-bold">תשלומים ${installmentBadge}</span>`
+                                            : `<span class="px-2 py-0.5 bg-rose-50 text-rose-700 text-[10px] rounded-full font-bold">${((FREQUENCIES[item?.frequency]) || { label: 'חודשי' }).label}</span>`}
+                                        ${item.type === 'variable_expense' ? '<span class="px-2 py-0.5 bg-blue-50 text-blue-700 text-[10px] rounded-full font-bold">הוצאה משתנה מחזורית</span>' : ''}
+                                        ${item.alert ? '<span class="px-2 py-0.5 bg-amber-50 text-amber-700 text-[10px] rounded-full font-bold">תזכורת פעילה</span>' : ''}
                                         ${item.isVariablePrice ? '<span class="px-2 py-0.5 bg-amber-50 text-amber-700 text-[10px] rounded-full font-bold">מחיר משתנה</span>' : ''}
                                     </div>
                                 </div>
                             </div>
                             <p class="font-extrabold text-rose-600 text-lg">${formatCurrency(item.amount)}</p>
                         </div>
-                    `).join('')}
+                    `;}).join('')}
                 </div>
             </section>
+
+            ${state.settings.householdMode === 'family' ? `
+                <section class="space-y-3">
+                    <button onclick="togglePartnerInvitePanel()" class="w-full bg-surface-variant/10 border border-surface-variant/30 rounded-2xl px-4 py-3 flex items-center justify-between">
+                        <div class="flex items-center gap-2">
+                            <span class="material-symbols-outlined text-primary">group_add</span>
+                            <span class="font-bold">הזמנת בן/בת זוג לחשבון</span>
+                        </div>
+                        <span class="material-symbols-outlined text-on-surface-variant">${state.partnerInviteExpanded ? 'expand_less' : 'expand_more'}</span>
+                    </button>
+
+                    ${state.partnerInviteExpanded ? `
+                        <div class="bg-surface-variant/10 rounded-3xl p-6 space-y-4 border border-surface-variant/30">
+                            <p class="text-sm text-on-surface-variant">אפשר לשלוח הזמנה ישירות בוואטסאפ כדי להתחבר לאותה מערכת נתונים.</p>
+                            <div class="space-y-2">
+                                <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">מספר טלפון</label>
+                                <input type="tel" id="partner-phone-input" dir="ltr" value="${state.settings.partnerPhone || ''}" placeholder="05XXXXXXXX" class="w-full h-14 px-4 rounded-2xl bg-white border-2 border-transparent focus:border-primary outline-none transition-all">
+                            </div>
+                            <button onclick="sendPartnerInvite()" class="w-full h-12 bg-primary text-white rounded-xl font-bold">
+                                שליחת הזמנה בוואטסאפ
+                            </button>
+                        </div>
+                    ` : ''}
+                </section>
+            ` : ''}
 
             <button onclick="logout()" class="w-full bg-rose-50 text-rose-600 py-4 rounded-2xl font-bold flex items-center justify-center gap-2 active:bg-rose-100 transition-all mt-6">
                 <span class="material-symbols-outlined">logout</span>
@@ -1325,14 +1864,24 @@ function renderSettings() {
     `;
 }
 
+function toggleForecastTooltip(key) {
+    state.forecastTooltipOpen = state.forecastTooltipOpen === key ? null : key;
+    render();
+}
+
 async function updateCycleStartDay(day) {
     state.settings.cycleStartDay = day;
     localStorage.setItem('budget_settings', JSON.stringify(state.settings));
-    await saveDataToGAS('updateSettings', state.settings);
+    await saveDataToGAS('updateSettings', state.settings, { showLoading: true });
 }
 
 function switchHomeChart(type) {
     state.activeHomeChart = type;
+    render();
+}
+
+function togglePartnerInvitePanel() {
+    state.partnerInviteExpanded = !state.partnerInviteExpanded;
     render();
 }
 
@@ -1359,7 +1908,101 @@ function handleProfileImageUpload(event) {
     }
 }
 
+function normalizePhoneForWhatsApp(rawPhone) {
+    const digits = String(rawPhone || '').replace(/[^\d]/g, '');
+    if (!digits) return '';
+    if (digits.startsWith('972')) return digits;
+    if (digits.startsWith('0')) return `972${digits.slice(1)}`;
+    return digits;
+}
+
+function isValidIsraeliPhone(rawPhone) {
+    const digits = String(rawPhone || '').replace(/[^\d]/g, '');
+    if (!digits) return false;
+    if (digits.startsWith('05') && digits.length === 10) return true;
+    if (digits.startsWith('9725') && digits.length === 12) return true;
+    return false;
+}
+
+function sendPartnerInvite() {
+    const input = document.getElementById('partner-phone-input');
+    const rawPhone = input ? input.value : (state.settings.partnerPhone || '');
+    const normalizedPhone = normalizePhoneForWhatsApp(rawPhone);
+
+    state.settings.partnerPhone = rawPhone || '';
+    localStorage.setItem('budget_settings', JSON.stringify(state.settings));
+    saveDataToGAS('updateSettings', state.settings);
+
+    if (!isValidIsraeliPhone(rawPhone) || !normalizedPhone) {
+        alert('נא להזין מספר ישראלי תקין (למשל 05XXXXXXXX).');
+        return;
+    }
+    if (!state.settings.scriptUrl || !state.settings.secretKey) {
+        alert('כדי לשלוח הזמנה צריך קודם להגדיר Script URL ו-Secret Key.');
+        return;
+    }
+
+    const appBaseUrl = `${window.location.origin}${window.location.pathname}`;
+    const form = new URLSearchParams();
+    form.set('secret', state.settings.secretKey);
+    form.set('action', 'createInviteToken');
+    form.set('payload', JSON.stringify({
+        appBaseUrl,
+        partnerPhone: rawPhone,
+        scriptUrl: state.settings.scriptUrl
+    }));
+
+    fetch(state.settings.scriptUrl, { method: 'POST', body: form })
+        .then(res => res.json())
+        .then(result => {
+            if (!result || !result.ok || !result.loginLink) {
+                throw new Error((result && result.message) || 'Failed to create invite token');
+            }
+
+            const message = [
+                `היי! הוזמנת להצטרף לחשבון BudgetPro המשפחתי שלנו.`,
+                ``,
+                `כניסה מהירה (טוקן חד-פעמי):`,
+                `${result.loginLink}`,
+                ``,
+                `פותחים את הקישור ולוחצים התחברות.`
+            ].join('\n');
+
+            const waUrl = `https://wa.me/${normalizedPhone}?text=${encodeURIComponent(message)}`;
+            window.open(waUrl, '_blank');
+        })
+        .catch((err) => {
+            console.error('Invite token creation failed:', err);
+            alert('לא הצלחנו ליצור הזמנה מאובטחת כרגע. נסה/י שוב בעוד רגע.');
+        });
+}
+
+async function resolveInviteTokenIfPresent() {
+    const prefill = getLoginPrefillFromHash();
+    if (!prefill.inviteToken || !prefill.backend) return;
+
+    try {
+        const url = `${prefill.backend}?action=resolveInviteToken&token=${encodeURIComponent(prefill.inviteToken)}`;
+        const res = await fetch(url);
+        const result = await res.json();
+        if (!result || !result.ok) {
+            throw new Error((result && result.message) || 'Invalid invite token');
+        }
+
+        const scriptInput = document.getElementById('scriptUrl');
+        const secretInput = document.getElementById('secretKey');
+        if (scriptInput && secretInput) {
+            scriptInput.value = result.scriptUrl || prefill.backend;
+            secretInput.value = result.secretKey || '';
+        }
+    } catch (err) {
+        console.error('Failed to resolve invite token:', err);
+        alert('לינק ההזמנה לא תקין או שפג תוקפו.');
+    }
+}
+
 function renderLogin() {
+    const prefill = getLoginPrefillFromHash();
     return `
         <div class="min-h-screen flex flex-col items-center justify-center p-6 bg-background">
             <div class="w-full max-w-sm space-y-8">
@@ -1374,11 +2017,11 @@ function renderLogin() {
                 <div class="space-y-4">
                     <div class="space-y-2">
                         <label class="text-sm font-medium px-1">כתובת Script</label>
-                        <input type="text" id="scriptUrl" placeholder="https://script.google.com/..." class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all">
+                        <input type="text" id="scriptUrl" value="${escapeHtmlAttr(prefill.scriptUrl || '')}" placeholder="https://script.google.com/..." class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all">
                     </div>
                     <div class="space-y-2">
                         <label class="text-sm font-medium px-1">מפתח סודי</label>
-                        <input type="password" id="secretKey" placeholder="••••••••" class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all">
+                        <input type="password" id="secretKey" value="${escapeHtmlAttr(prefill.secretKey || '')}" placeholder="••••••••" class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all">
                     </div>
                     <button onclick="handleLogin()" class="w-full h-14 bg-primary text-on-primary rounded-2xl font-bold text-lg shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all mt-4">
                         התחברות
@@ -1432,11 +2075,14 @@ function finishOnboarding() {
     const cycleStartDay = Math.max(1, Math.min(28, Number(state.onboardingData.cycleStartDay) || 1));
     const checkingBalance = Number(state.onboardingData.checkingBalance) || 0;
     const fixedIncome = Number(state.onboardingData.fixedIncome) || 0;
+    const spouseSalary = Number(state.onboardingData.spouseSalary) || 0;
     const fixedExpense = Number(state.onboardingData.fixedExpense) || 0;
     const today = formatDateLocal(new Date());
 
     state.settings.userName = name;
     state.settings.cycleStartDay = cycleStartDay;
+    state.settings.householdMode = state.onboardingData.profileType || 'personal';
+    state.settings.partnerPhone = state.onboardingData.partnerPhone || '';
 
     // Initialize first-run data from the onboarding answers.
     state.transactions = [];
@@ -1458,6 +2104,20 @@ function finishOnboarding() {
             id: `tx-inc-${Date.now()}`,
             name: 'הכנסה חודשית קבועה',
             amount: fixedIncome,
+            type: 'fixed_income',
+            date: today,
+            category: 'משכורת',
+            isRecurring: true,
+            frequency: 'monthly',
+            desc: 'הוגדר בשלב ההיכרות'
+        });
+    }
+
+    if (spouseSalary > 0) {
+        state.transactions.push({
+            id: `tx-spouse-inc-${Date.now() + 2}`,
+            name: 'משכורת בן/בת זוג',
+            amount: spouseSalary,
             type: 'fixed_income',
             date: today,
             category: 'משכורת',
@@ -1532,6 +2192,19 @@ function renderOnboarding() {
                             <p class="text-xs text-on-surface-variant mt-1">יותר פוקוס על הכנסות, הוצאות ועמידה ביעדים.</p>
                         </button>
                     </div>
+
+                    ${state.onboardingData.profileType === 'family' ? `
+                        <div class="space-y-3 pt-2">
+                            <p class="font-bold text-sm">תרצה/י להוסיף בן/בת זוג ולהזמין אותו/ה בהמשך?</p>
+                            <div class="grid grid-cols-2 gap-3">
+                                <button onclick="updateOnboardingField('invitePartner','yes'); render();" class="h-12 rounded-xl border-2 font-bold ${state.onboardingData.invitePartner === 'yes' ? 'border-primary bg-primary/10' : 'border-surface-variant/30 bg-white'}">כן</button>
+                                <button onclick="updateOnboardingField('invitePartner','no'); render();" class="h-12 rounded-xl border-2 font-bold ${state.onboardingData.invitePartner === 'no' ? 'border-primary bg-primary/10' : 'border-surface-variant/30 bg-white'}">לא</button>
+                            </div>
+                            ${state.onboardingData.invitePartner === 'yes' ? `
+                                <input type="tel" dir="ltr" value="${state.onboardingData.partnerPhone || ''}" oninput="updateOnboardingField('partnerPhone', this.value)" placeholder="טלפון בן/בת זוג (למשל 05XXXXXXXX)" class="w-full h-12 px-3 rounded-xl bg-white border border-surface-variant/40 outline-none focus:border-primary">
+                            ` : ''}
+                        </div>
+                    ` : ''}
                 </div>
             `;
         }
@@ -1564,9 +2237,13 @@ function renderOnboarding() {
                     <h2 class="text-2xl font-black">שאלון קצר להתחלה</h2>
                     <p class="text-on-surface-variant text-sm">הנתונים האלו יתנו בסיס ראשוני לתזרים ולתחזית.</p>
                     <div class="grid grid-cols-2 gap-3">
-                        <div class="space-y-1">
-                            <label class="text-xs font-bold text-on-surface-variant">יום תחילת מחזור</label>
-                            <input type="number" min="1" max="28" value="${state.onboardingData.cycleStartDay || 1}" oninput="updateOnboardingField('cycleStartDay', this.value)" class="w-full h-12 px-3 rounded-xl bg-white border border-surface-variant/40 outline-none focus:border-primary">
+                        <div class="space-y-1 col-span-2">
+                            <label class="text-xs font-bold text-on-surface-variant">יום תחילת מחזור (כמו בהגדרות)</label>
+                            <div class="grid grid-cols-4 gap-2">
+                                ${[1,2,10,15].map(day => `
+                                    <button type="button" onclick="updateOnboardingField('cycleStartDay', ${day}); render();" class="h-11 rounded-xl font-bold border transition-all ${Number(state.onboardingData.cycleStartDay || 1) === day ? 'bg-primary text-white border-primary' : 'bg-white border-surface-variant/40'}">${day}</button>
+                                `).join('')}
+                            </div>
                         </div>
                         <div class="space-y-1">
                             <label class="text-xs font-bold text-on-surface-variant">יתרת עו״ש נוכחית</label>
@@ -1576,6 +2253,12 @@ function renderOnboarding() {
                             <label class="text-xs font-bold text-on-surface-variant">הכנסה חודשית קבועה</label>
                             <input type="number" min="0" value="${state.onboardingData.fixedIncome || ''}" oninput="updateOnboardingField('fixedIncome', this.value)" class="w-full h-12 px-3 rounded-xl bg-white border border-surface-variant/40 outline-none focus:border-primary">
                         </div>
+                        ${state.onboardingData.profileType === 'family' ? `
+                            <div class="space-y-1 col-span-2">
+                                <label class="text-xs font-bold text-on-surface-variant">שכר בן/בת זוג (אם יש)</label>
+                                <input type="number" min="0" value="${state.onboardingData.spouseSalary || ''}" oninput="updateOnboardingField('spouseSalary', this.value)" class="w-full h-12 px-3 rounded-xl bg-white border border-surface-variant/40 outline-none focus:border-primary">
+                            </div>
+                        ` : ''}
                         <div class="space-y-1">
                             <label class="text-xs font-bold text-on-surface-variant">הוצאה חודשית קבועה</label>
                             <input type="number" min="0" value="${state.onboardingData.fixedExpense || ''}" oninput="updateOnboardingField('fixedExpense', this.value)" class="w-full h-12 px-3 rounded-xl bg-white border border-surface-variant/40 outline-none focus:border-primary">
@@ -1624,18 +2307,33 @@ function renderOnboarding() {
 
 // --- API Communication ---
 function applyBootstrapData(result) {
+    const applyStart = perfNow();
     if (!result || !result.ok) return false;
+    const hasStateShape = (
+        Object.prototype.hasOwnProperty.call(result, 'transactions') ||
+        Object.prototype.hasOwnProperty.call(result, 'savingsGoals') ||
+        Object.prototype.hasOwnProperty.call(result, 'accountBalances') ||
+        Object.prototype.hasOwnProperty.call(result, 'categories') ||
+        Object.prototype.hasOwnProperty.call(result, 'settings')
+    );
+    if (!hasStateShape) return false;
 
-    state.transactions = (result.transactions || []).map((t) => {
-        if (!t || typeof t !== 'object') return t;
-        const isFixedExpense = t.type === 'fixed_expense';
-        return {
-            ...t,
-            frequency: isFixedExpense && !FREQUENCIES[t.frequency] ? 'monthly' : t.frequency
-        };
-    });
-    state.savingsGoals = result.savingsGoals || [];
-    state.accountBalances = result.accountBalances || [];
+    if (Object.prototype.hasOwnProperty.call(result, 'transactions')) {
+        state.transactions = (result.transactions || []).map((t) => {
+            if (!t || typeof t !== 'object') return t;
+            const isFixedExpense = t.type === 'fixed_expense';
+            return {
+                ...t,
+                frequency: isFixedExpense && !FREQUENCIES[t.frequency] ? 'monthly' : t.frequency
+            };
+        });
+    }
+    if (Object.prototype.hasOwnProperty.call(result, 'savingsGoals')) {
+        state.savingsGoals = result.savingsGoals || [];
+    }
+    if (Object.prototype.hasOwnProperty.call(result, 'accountBalances')) {
+        state.accountBalances = result.accountBalances || [];
+    }
     if (result.categories) {
         state.categories = result.categories.map(cat => {
             if (typeof cat === 'string') return { name: cat, icon: 'category' };
@@ -1651,16 +2349,110 @@ function applyBootstrapData(result) {
             secretKey: state.settings.secretKey
         };
     }
+    perfLog('applyBootstrapData()', applyStart, `tx=${state.transactions.length}, goals=${state.savingsGoals.length}, acc=${state.accountBalances.length}`);
     return true;
 }
 
+function applyActionResultLocally(action, result, payload) {
+    if (!result || !result.ok) return false;
+
+    const upsertInList = (list, item) => {
+        if (!item || !item.id) return list;
+        const index = list.findIndex((v) => v && v.id === item.id);
+        if (index === -1) return [...list, item];
+        const next = list.slice();
+        // Keep existing fields if backend response is partial.
+        next[index] = { ...next[index], ...item };
+        return next;
+    };
+
+    if ((action === 'upsertSettings' || action === 'updateSettings') && result.settings) {
+        state.settings = {
+            ...state.settings,
+            ...result.settings,
+            scriptUrl: state.settings.scriptUrl,
+            secretKey: state.settings.secretKey
+        };
+        return true;
+    }
+
+    if ((action === 'addTransaction' || action === 'upsertTransaction' || action === 'updateTransaction') && result.transaction) {
+        const tx = {
+            ...result.transaction,
+            frequency: result.transaction.type === 'fixed_expense' && !FREQUENCIES[result.transaction.frequency]
+                ? 'monthly'
+                : result.transaction.frequency
+        };
+        state.transactions = upsertInList(state.transactions, tx);
+        return true;
+    }
+
+    if (action === 'deleteTransaction' && (result.deletedId || (payload && payload.id))) {
+        const targetId = result.deletedId || payload.id;
+        state.transactions = state.transactions.filter((t) => String(t.id) !== String(targetId));
+        return true;
+    }
+
+    if ((action === 'addSavingsGoal' || action === 'upsertSavingsGoal' || action === 'updateSavingsGoal') && result.savingsGoal) {
+        state.savingsGoals = upsertInList(state.savingsGoals, result.savingsGoal);
+        return true;
+    }
+
+    if (action === 'deleteSavingsGoal' && result.deletedId) {
+        state.savingsGoals = state.savingsGoals.filter((g) => String(g.id) !== String(result.deletedId));
+        return true;
+    }
+
+    if ((action === 'addAccountBalance' || action === 'upsertAccountBalance' || action === 'updateAccountBalance') && result.accountBalance) {
+        state.accountBalances = upsertInList(state.accountBalances, result.accountBalance);
+        return true;
+    }
+
+    if (action === 'deleteAccountBalance' && result.deletedId) {
+        state.accountBalances = state.accountBalances.filter((a) => String(a.id) !== String(result.deletedId));
+        return true;
+    }
+
+    if ((action === 'addCategory' || action === 'upsertCategory') && result.categories) {
+        state.categories = result.categories.map((cat) => (typeof cat === 'string' ? { name: cat, icon: 'category' } : cat));
+        return true;
+    }
+
+    if (action === 'deleteCategory' && result.categories) {
+        state.categories = result.categories.map((cat) => (typeof cat === 'string' ? { name: cat, icon: 'category' } : cat));
+        return true;
+    }
+
+    if (result.state && result.state.ok) {
+        if (action && action !== 'replaceAllData' && action !== 'syncAll' && action !== 'saveSetup' && action !== 'clearAllData') {
+            const s = result.state || {};
+            const looksEmptyState = Array.isArray(s.transactions) && Array.isArray(s.savingsGoals) && Array.isArray(s.accountBalances)
+                && s.transactions.length === 0 && s.savingsGoals.length === 0 && s.accountBalances.length === 0;
+            if (looksEmptyState) {
+                console.warn('[SYNC_GUARD] Ignoring suspicious empty bootstrap payload on action:', action, result);
+                return true;
+            }
+        }
+        // Fallback for older backend payloads that still return full state.
+        // Action-specific handlers above intentionally win to avoid accidental
+        // state wipe from malformed legacy bootstrap responses.
+        return applyBootstrapData(result.state);
+    }
+
+    // Fallback: apply any full bootstrap-like payload if returned.
+    return applyBootstrapData(result);
+}
+
 async function fetchDataFromGAS(options = {}) {
+    const totalStart = perfNow();
     if (!state.settings.scriptUrl || !state.settings.secretKey) return;
     const showLoading = options.showLoading !== false;
     if (showLoading) startLoading(options.loadingMessage || 'טוען נתונים מהקובץ...');
 
     try {
+        const networkStart = perfNow();
         const response = await fetch(`${state.settings.scriptUrl}?secret=${encodeURIComponent(state.settings.secretKey)}&action=getBootstrapData`);
+        perfLog('fetchDataFromGAS network', networkStart, `status=${response.status}`);
         
         const contentType = response.headers.get("content-type");
         if (!contentType || !contentType.includes("application/json")) {
@@ -1672,9 +2464,12 @@ async function fetchDataFromGAS(options = {}) {
             return;
         }
 
+        const parseStart = perfNow();
         const result = await response.json();
+        perfLog('fetchDataFromGAS parseJSON', parseStart);
         
         if (applyBootstrapData(result)) {
+            ensureGoalRecurringTransactionsSyncedOnce();
             render();
         } else {
             console.error('Failed to fetch data:', result && result.message);
@@ -1685,42 +2480,75 @@ async function fetchDataFromGAS(options = {}) {
     } catch (error) {
         console.error('Error fetching data:', error);
     } finally {
+        perfLog('fetchDataFromGAS total', totalStart, `showLoading=${showLoading}`);
         if (showLoading) stopLoading();
     }
 }
 
-async function saveDataToGAS(action, data) {
+async function saveDataToGAS(action, data, options = {}) {
+    const totalStart = perfNow();
     if (!state.settings.scriptUrl || !state.settings.secretKey) return;
-    startLoading('שומר ומסנכרן נתונים...');
+    const showLoading = options.showLoading === true;
 
-    try {
-        const form = new URLSearchParams();
-        form.set('secret', state.settings.secretKey);
-        form.set('action', action);
-        form.set('payload', JSON.stringify(data || {}));
+    state.saveQueueSize += 1;
+    if (showLoading) startLoading('שומר ומסנכרן נתונים...');
 
-        const response = await fetch(state.settings.scriptUrl, {
-            method: 'POST',
-            body: form
-        });
+    const runSave = async () => {
+        try {
+            const prepStart = perfNow();
+            const form = new URLSearchParams();
+            form.set('secret', state.settings.secretKey);
+            form.set('action', action);
+            form.set('payload', JSON.stringify(data || {}));
+            perfLog('saveDataToGAS preparePayload', prepStart, `action=${action}`);
 
-        if (!response.ok) {
-            throw new Error(`Save failed with HTTP ${response.status}`);
+            const networkStart = perfNow();
+            const response = await fetch(state.settings.scriptUrl, {
+                method: 'POST',
+                body: form
+            });
+            perfLog('saveDataToGAS network', networkStart, `action=${action}, status=${response.status}`);
+
+            if (!response.ok) {
+                throw new Error(`Save failed with HTTP ${response.status}`);
+            }
+
+            const parseStart = perfNow();
+            const result = await response.json();
+            perfLog('saveDataToGAS parseJSON', parseStart, `action=${action}`);
+            console.log('[DEBUG] saveDataToGAS result', {
+                action,
+                hasState: !!(result && result.state),
+                hasDeletedId: !!(result && result.deletedId),
+                hasTransaction: !!(result && result.transaction),
+                ok: !!(result && result.ok),
+                keys: result ? Object.keys(result) : []
+            });
+            if (action === 'deleteTransaction') {
+                console.log('[DEBUG] deleteTransaction payload/result', { payload: data, result });
+            }
+            if (applyActionResultLocally(action, result, data)) {
+                render();
+            } else {
+                console.warn('[SYNC_GUARD] Unexpected save response shape, keeping local state:', action, result);
+                // Keep optimistic local state and avoid destructive full sync.
+                render();
+            }
+        } catch (error) {
+            console.error('Error saving data:', error);
+            // Recovery sync if save failed.
+            try {
+                await fetchDataFromGAS({ showLoading: false });
+            } catch (_) {}
+        } finally {
+            state.saveQueueSize = Math.max(0, state.saveQueueSize - 1);
+            perfLog('saveDataToGAS total', totalStart, `action=${action}, queue=${state.saveQueueSize}`);
+            if (showLoading) stopLoading();
         }
+    };
 
-        const result = await response.json();
-        const bootstrap = result && result.state && result.state.ok ? result.state : result;
-        if (applyBootstrapData(bootstrap)) {
-            render();
-        } else {
-            // Fallback for unexpected backend payload shape.
-            await fetchDataFromGAS({ showLoading: false });
-        }
-    } catch (error) {
-        console.error('Error saving data:', error);
-    } finally {
-        stopLoading();
-    }
+    saveQueuePromise = saveQueuePromise.then(runSave);
+    return saveQueuePromise;
 }
 
 // --- Modal Management ---
@@ -1753,7 +2581,7 @@ function closeModal() {
 }
 
 function renderTransactionModal(transaction = null) {
-    const isEdit = !!transaction;
+    const isEdit = !!(transaction && transaction.id);
     const title = isEdit ? 'עריכת תנועה' : 'תנועה חדשה';
     
     const html = `
@@ -1813,7 +2641,7 @@ function renderTransactionModal(transaction = null) {
                     </div>
                 </div>
 
-                <div id="frequency-section" class="${transaction?.type?.startsWith('fixed') ? '' : 'hidden'} space-y-4">
+                <div id="frequency-section" class="${(!transaction?.isInstallments && (transaction?.type?.startsWith('fixed') || (transaction?.type === 'variable_expense' && transaction?.isRecurring))) ? '' : 'hidden'} space-y-4">
                     <div class="space-y-1">
                         <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">תדירות</label>
                         <select name="frequency" class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all appearance-none">
@@ -1823,7 +2651,7 @@ function renderTransactionModal(transaction = null) {
                         </select>
                     </div>
 
-                    <div id="variable-price-section" class="${transaction?.type === 'fixed_expense' ? '' : 'hidden'} flex items-center justify-between bg-surface-variant/10 p-4 rounded-2xl border border-surface-variant/30">
+                    <div id="variable-price-section" class="${(transaction?.type === 'fixed_expense' || transaction?.type === 'variable_expense') ? '' : 'hidden'} flex items-center justify-between bg-surface-variant/10 p-4 rounded-2xl border border-surface-variant/30">
                         <div class="flex flex-col">
                             <label for="isVariablePrice" class="text-sm font-bold">מחיר משתנה</label>
                             <p class="text-[10px] text-on-surface-variant">הוצאה שסכומה משתנה (כמו חשמל)</p>
@@ -1832,8 +2660,32 @@ function renderTransactionModal(transaction = null) {
                     </div>
                 </div>
 
+                <div id="expense-reminder-section" class="${(transaction?.type === 'fixed_expense' || transaction?.type === 'variable_expense') ? '' : 'hidden'}">
+                    <label class="flex items-center gap-3 p-4 bg-amber-50 rounded-2xl border border-amber-100 cursor-pointer">
+                        <input type="checkbox" name="alert" ${transaction?.alert ? 'checked' : ''} class="w-5 h-5 rounded border-amber-300 text-amber-600 focus:ring-amber-400">
+                        <span class="text-sm font-bold text-amber-800">להפעיל תזכורת בתאריך החודשי של ההוצאה</span>
+                    </label>
+                </div>
+
+                <div id="installments-section" class="${(transaction?.type === 'fixed_expense' || transaction?.type === 'variable_expense') ? '' : 'hidden'} space-y-3 bg-blue-50/60 p-4 rounded-2xl border border-blue-100">
+                    <label class="flex items-center gap-3 cursor-pointer">
+                        <input type="checkbox" id="isInstallments" name="isInstallments" onchange="toggleFrequencyDisplay(document.getElementById('transaction-type').value)" ${transaction?.isInstallments ? 'checked' : ''} class="w-5 h-5 rounded border-blue-300 text-blue-600 focus:ring-blue-400">
+                        <span class="text-sm font-bold text-blue-900">זו הוצאה בתשלומים</span>
+                    </label>
+                    <div id="installments-details" class="${transaction?.isInstallments ? '' : 'hidden'} grid grid-cols-2 gap-3">
+                        <div class="space-y-1">
+                            <label class="text-xs font-bold text-blue-900/80 uppercase tracking-wider px-1">תאריך תשלום ראשון</label>
+                            <input type="date" name="installmentsStartDate" value="${transaction?.installmentsStartDate || transaction?.date || formatDateLocal(new Date())}" class="w-full h-12 px-3 rounded-xl bg-white border border-blue-100 focus:border-primary outline-none transition-all">
+                        </div>
+                        <div class="space-y-1">
+                            <label class="text-xs font-bold text-blue-900/80 uppercase tracking-wider px-1">מס׳ תשלומים</label>
+                            <input type="number" name="installmentsTotal" min="2" step="1" value="${transaction?.installmentsTotal || ''}" class="w-full h-12 px-3 rounded-xl bg-white border border-blue-100 focus:border-primary outline-none transition-all" placeholder="למשל 10">
+                        </div>
+                    </div>
+                </div>
+
                 <div class="flex items-center gap-2 py-2">
-                    <input type="checkbox" id="isRecurring" name="isRecurring" ${transaction?.isRecurring || transaction?.type?.startsWith('fixed') ? 'checked' : ''} class="w-5 h-5 rounded border-surface-variant text-primary focus:ring-primary">
+                    <input type="checkbox" id="isRecurring" name="isRecurring" onchange="toggleFrequencyDisplay(document.getElementById('transaction-type').value)" ${transaction?.isRecurring || transaction?.type?.startsWith('fixed') ? 'checked' : ''} class="w-5 h-5 rounded border-surface-variant text-primary focus:ring-primary">
                     <label for="isRecurring" class="text-sm font-bold">תנועה קבועה</label>
                 </div>
                 
@@ -1858,41 +2710,102 @@ function renderTransactionModal(transaction = null) {
         const formData = new FormData(e.target);
         const type = formData.get('type');
         const isVariablePrice = formData.get('isVariablePrice') === 'on';
+        const isInstallments = (type === 'fixed_expense' || type === 'variable_expense') && formData.get('isInstallments') === 'on';
+        const installmentsTotal = isInstallments ? normalizeInstallmentsTotal(formData.get('installmentsTotal')) : 0;
+        const installmentsStartDate = isInstallments ? String(formData.get('installmentsStartDate') || formData.get('date') || formatDateLocal(new Date())) : '';
+
+        if (isInstallments && installmentsTotal < 2) {
+            alert('בהוצאה בתשלומים יש להזין לפחות 2 תשלומים.');
+            return;
+        }
+
+        const isRecurring = isInstallments || formData.get('isRecurring') === 'on' || type.startsWith('fixed');
+        const effectiveDate = isInstallments ? installmentsStartDate : String(formData.get('date'));
         
         const data = {
             id: transaction?.id || Date.now().toString(),
             name: formData.get('name'),
             amount: parseFloat(formData.get('amount')),
-            date: formData.get('date'),
+            date: effectiveDate,
             type: type,
             category: formData.get('category'),
-            isRecurring: formData.get('isRecurring') === 'on' || type.startsWith('fixed'),
-            frequency: type.startsWith('fixed') ? formData.get('frequency') : null,
-            isVariablePrice: type === 'fixed_expense' ? isVariablePrice : false,
+            isRecurring: isRecurring,
+            frequency: isInstallments ? 'monthly' : (isRecurring ? (formData.get('frequency') || transaction?.frequency || 'monthly') : ''),
+            alert: (type === 'fixed_expense' || type === 'variable_expense') ? (formData.get('alert') === 'on') : false,
+            isVariablePrice: (type === 'fixed_expense' || type === 'variable_expense') ? isVariablePrice : false,
             lastMonthAmount: (isVariablePrice && isEdit) ? transaction.amount : (transaction?.lastMonthAmount || 0),
-            desc: formData.get('name')
+            isInstallments: isInstallments,
+            installmentsTotal: isInstallments ? installmentsTotal : '',
+            installmentsStartDate: isInstallments ? installmentsStartDate : '',
+            desc: formData.get('name'),
+            goalId: transaction?.goalId || '',
+            cycleDate: transaction?.cycleDate || ''
         };
         
         handleSaveTransaction(data, isEdit);
     };
+
+    const typeSelect = document.getElementById('transaction-type');
+    if (typeSelect) {
+        toggleFrequencyDisplay(typeSelect.value);
+    }
 }
 
 function toggleFrequencyDisplay(type) {
     const freqSection = document.getElementById('frequency-section');
     const varPriceSection = document.getElementById('variable-price-section');
+    const reminderSection = document.getElementById('expense-reminder-section');
+    const installmentsSection = document.getElementById('installments-section');
     const isRecurringCheckbox = document.getElementById('isRecurring');
-    
-    if (type.startsWith('fixed')) {
+    const isInstallmentsCheckbox = document.getElementById('isInstallments');
+
+    const isExpenseType = type === 'fixed_expense' || type === 'variable_expense';
+    const installmentsChecked = !!(isInstallmentsCheckbox && isInstallmentsCheckbox.checked);
+    const shouldShowFrequency = !installmentsChecked && (type.startsWith('fixed') || (type === 'variable_expense' && isRecurringCheckbox && isRecurringCheckbox.checked));
+
+    if (shouldShowFrequency) {
         freqSection.classList.remove('hidden');
-        isRecurringCheckbox.checked = true;
-        if (type === 'fixed_expense') {
-            varPriceSection.classList.remove('hidden');
-        } else {
-            varPriceSection.classList.add('hidden');
-        }
     } else {
         freqSection.classList.add('hidden');
-        isRecurringCheckbox.checked = false;
+    }
+
+    if (type.startsWith('fixed') && isRecurringCheckbox) {
+        isRecurringCheckbox.checked = true;
+    }
+
+    if (varPriceSection) {
+        if (isExpenseType) varPriceSection.classList.remove('hidden');
+        else varPriceSection.classList.add('hidden');
+    }
+
+    if (reminderSection) {
+        if (isExpenseType) reminderSection.classList.remove('hidden');
+        else reminderSection.classList.add('hidden');
+    }
+
+    if (installmentsSection) {
+        if (isExpenseType) installmentsSection.classList.remove('hidden');
+        else installmentsSection.classList.add('hidden');
+    }
+
+    if (!isExpenseType && isInstallmentsCheckbox) {
+        isInstallmentsCheckbox.checked = false;
+    }
+
+    toggleInstallmentsDetails();
+}
+
+function toggleInstallmentsDetails() {
+    const isInstallmentsCheckbox = document.getElementById('isInstallments');
+    const details = document.getElementById('installments-details');
+    const frequencySection = document.getElementById('frequency-section');
+    if (!details || !isInstallmentsCheckbox) return;
+
+    if (isInstallmentsCheckbox.checked) {
+        details.classList.remove('hidden');
+        if (frequencySection) frequencySection.classList.add('hidden');
+    } else {
+        details.classList.add('hidden');
     }
 }
 function handleSaveTransaction(data, isEdit) {
@@ -1908,7 +2821,23 @@ function handleSaveTransaction(data, isEdit) {
 }
 
 function handleDeleteTransaction(id) {
+    const tx = state.transactions.find((t) => String(t.id) === String(id));
+    const linkedGoal = tx && tx.goalId ? state.savingsGoals.find((g) => String(g.id) === String(tx.goalId)) : null;
     if (confirm('האם אתה בטוח שברצונך למחוק תנועה זו?')) {
+        if (tx && tx.type === 'savings_deposit' && tx.isRecurring && linkedGoal) {
+            const cycleKey = getCurrentCycleKey();
+            const skipped = getSkippedCycleSetFromTransaction(tx);
+            skipped.add(cycleKey);
+            const updatedTx = {
+                ...tx,
+                cycleDate: buildSkippedCycleValue(skipped)
+            };
+            state.transactions = state.transactions.map((t) => (String(t.id) === String(tx.id) ? updatedTx : t));
+            saveDataToGAS('updateTransaction', updatedTx);
+            closeModal();
+            render();
+            return;
+        }
         state.transactions = state.transactions.filter(t => t.id !== id);
         saveDataToGAS('deleteTransaction', { id });
         closeModal();
@@ -1982,6 +2911,89 @@ function handleSaveCategory(category) {
     saveDataToGAS('addCategory', category);
     closeModal();
     render();
+}
+
+function renderSavingsActionModal() {
+    const hasGoals = state.savingsGoals.length > 0;
+
+    const html = `
+        <div class="space-y-6">
+            <div class="flex items-center justify-between mb-2">
+                <h2 class="text-2xl font-black text-primary">פעולת חיסכון</h2>
+                <button onclick="closeModal()" class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-variant/50">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+
+            <button type="button" onclick="handleSavingsActionSelect('new')" class="w-full p-4 rounded-2xl border border-surface-variant/40 bg-white hover:bg-surface-variant/10 transition-all text-right">
+                <p class="text-lg font-black text-on-surface">יצירת יעד חיסכון חדש</p>
+                <p class="text-sm text-on-surface-variant mt-1">הגדרת יעד, תאריך התחלה והפקדה חודשית</p>
+            </button>
+
+            <button type="button" onclick="handleSavingsActionSelect('extra')" class="w-full p-4 rounded-2xl border border-surface-variant/40 ${hasGoals ? 'bg-white hover:bg-surface-variant/10' : 'bg-surface-variant/20 opacity-60 cursor-not-allowed'} transition-all text-right" ${hasGoals ? '' : 'disabled'}>
+                <p class="text-lg font-black text-on-surface">הפקדה נוספת לחיסכון קיים</p>
+                <p class="text-sm text-on-surface-variant mt-1">${hasGoals ? 'בחירת יעד קיים ועדכון ההפקדה של החודש' : 'אין עדיין יעדי חיסכון קיימים'}</p>
+            </button>
+        </div>
+    `;
+
+    openModal(html);
+}
+
+function handleSavingsActionSelect(mode) {
+    if (mode === 'new') {
+        renderSavingsModal();
+        return;
+    }
+
+    if (!state.savingsGoals.length) {
+        alert('לא קיימים עדיין יעדי חיסכון. בוא ניצור יעד חדש קודם.');
+        renderSavingsModal();
+        return;
+    }
+
+    renderSavingsGoalPickerModal();
+}
+
+function renderSavingsGoalPickerModal() {
+    const goals = [...state.savingsGoals]
+        .sort((a, b) => (Number(b.current) || 0) - (Number(a.current) || 0));
+
+    if (!goals.length) {
+        renderSavingsModal();
+        return;
+    }
+
+    const html = `
+        <div class="space-y-6">
+            <div class="flex items-center justify-between mb-2">
+                <h2 class="text-2xl font-black text-primary">בחירת חיסכון להפקדה</h2>
+                <button onclick="closeModal()" class="w-10 h-10 flex items-center justify-center rounded-full hover:bg-surface-variant/50">
+                    <span class="material-symbols-outlined">close</span>
+                </button>
+            </div>
+
+            <div class="space-y-3 max-h-[52vh] overflow-y-auto no-scrollbar pr-1">
+                ${goals.map((goal) => `
+                    <button type="button" onclick="renderExtraDepositModal('${goal.id}')" class="w-full p-4 rounded-2xl border border-surface-variant/40 bg-white hover:bg-surface-variant/10 transition-all text-right">
+                        <div class="flex items-center justify-between gap-3">
+                            <span class="material-symbols-outlined ${goal.color.replace('bg-', 'text-')}">savings</span>
+                            <div class="min-w-0">
+                                <p class="font-black text-lg truncate">${goal.name}</p>
+                                <p class="text-sm text-on-surface-variant">נוכחי: ${formatCurrency(goal.current || 0)} • יעד: ${formatCurrency(goal.target || 0)}</p>
+                            </div>
+                        </div>
+                    </button>
+                `).join('')}
+            </div>
+
+            <button type="button" onclick="renderSavingsActionModal()" class="w-full h-12 rounded-2xl bg-surface-variant/20 text-on-surface font-bold">
+                חזרה
+            </button>
+        </div>
+    `;
+
+    openModal(html);
 }
 
 function renderSavingsModal(goal = null) {
@@ -2097,6 +3109,7 @@ function handleSaveSavings(data, isEdit) {
         state.savingsGoals.push(data);
         saveDataToGAS('addSavingsGoal', data);
     }
+    syncRecurringDepositWithGoal(data, isEdit);
     closeModal();
     render();
 }
@@ -2181,6 +3194,11 @@ function renderExtraDepositModal(goalId) {
 
 function handleDeleteSavings(id) {
     if (confirm('האם אתה בטוח שברצונך למחוק יעד זה?')) {
+        const linkedRecurring = getGoalRecurringDepositTransaction(id);
+        if (linkedRecurring) {
+            state.transactions = state.transactions.filter((t) => String(t.id) !== String(linkedRecurring.id));
+            saveDataToGAS('deleteTransaction', { id: linkedRecurring.id });
+        }
         state.savingsGoals = state.savingsGoals.filter(g => g.id !== id);
         saveDataToGAS('deleteSavingsGoal', { id });
         closeModal();

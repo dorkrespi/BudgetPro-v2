@@ -62,9 +62,9 @@ flowchart LR
 
     Sheet[("Google Sheet<br/>Settings · Transactions · SavingsGoals<br/>AccountBalances · Categories · InviteTokens")]
 
-    UI -- "POST { action, payload, secret }" --> API
+    UI -- "POST action + payload + secret" --> API
     API -- "JSON state / typed result" --> UI
-    API -- "header-mapped read/write" --> Sheet
+    API -- "header-mapped read / write" --> Sheet
 ```
 
 - **Frontend** — one `index.html` shell and one `app.js` (~3,600 lines): a hash

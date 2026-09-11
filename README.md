@@ -1,5 +1,7 @@
 # BudgetPro
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A Hebrew (RTL), mobile-first personal-finance app I built to run my own household
 budget — and have used for real since early 2026. It turns everything you already
 know is coming (salaries, recurring bills, installment plans, standing savings
@@ -152,3 +154,7 @@ from the Apps Script editor (or via [`clasp`](https://github.com/google/clasp)).
 Vanilla JavaScript · Tailwind CSS (CDN) · Chart.js · Google Apps Script · Google
 Sheets · GitHub Pages. Scaffolded in Google AI Studio, then rebuilt by hand into
 the vanilla-JS app it is now, with AI-assisted development along the way.
+
+## License
+
+[MIT](LICENSE) © 2026 [Dor Krespi](https://github.com/dorkrespi)

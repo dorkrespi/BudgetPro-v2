@@ -10,11 +10,12 @@ hold, month by month.
 
 **Live demo → https://dorkrespi.github.io/BudgetPro-v2/**
 The demo opens on the onboarding screen; connect a Google Sheet backend (2-minute
-setup, [below](#deploy-your-own-copy)) to load and persist data.
+setup, [below](#deploy-your-own-copy)) to load and persist data. The screenshots
+below show the app populated with sample data.
 
-<!-- Screenshots: add 2–3 images to docs/ and reference them here, e.g.
-![Home](docs/home.png) ![Forecast](docs/forecast.png) ![Savings](docs/savings.png)
--->
+| Home | Forecast | Savings | Transactions |
+|---|---|---|---|
+| ![Home](docs/home.jpg) | ![Forecast](docs/forecast.jpg) | ![Savings](docs/savings.jpg) | ![Transactions](docs/transactions.jpg) |
 
 ---
 

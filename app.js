@@ -174,6 +174,14 @@ function escapeHtmlAttr(value) {
         .replace(/>/g, '&gt;');
 }
 
+function renderAvatarMarkup(extraAttrs = '') {
+    const img = state.settings.profileImage;
+    if (img) {
+        return `<img ${extraAttrs} src="${escapeHtmlAttr(img)}" alt="${escapeHtmlAttr(state.settings.userName || 'BudgetPro')}" class="w-full h-full object-cover" referrerPolicy="no-referrer">`;
+    }
+    return `<div ${extraAttrs} class="w-full h-full flex items-center justify-center bg-primary-container text-on-primary-container"><span class="material-symbols-outlined">person</span></div>`;
+}
+
 function getLoginPrefillFromHash() {
     const rawHash = window.location.hash || '';
     const clean = rawHash.startsWith('#') ? rawHash.slice(1) : rawHash;
@@ -692,7 +700,7 @@ function renderTopAppBar(title) {
             <div class="max-w-2xl mx-auto h-full flex items-center justify-between">
                 <div class="flex items-center gap-3">
                     <div class="w-10 h-10 rounded-full overflow-hidden border-2 border-primary/20">
-                        <img src="${state.settings.profileImage}" alt="Profile" class="w-full h-full object-cover">
+                        ${renderAvatarMarkup()}
                     </div>
                     <div>
                         <h1 class="text-lg font-bold text-primary leading-tight">BudgetPro</h1>
@@ -1697,7 +1705,7 @@ function renderSettings() {
             <section class="flex flex-col items-center text-center space-y-4 py-4">
                 <div class="relative group">
                     <div class="relative w-24 h-24 rounded-full bg-primary-container flex items-center justify-center overflow-hidden border-4 border-white shadow-sm">
-                        <img id="profile-img-preview" alt="Profile" class="w-full h-full object-cover" src="${state.settings.profileImage}" referrerPolicy="no-referrer">
+                        ${renderAvatarMarkup('id="profile-img-preview"')}
                     </div>
                     <button onclick="document.getElementById('profile-upload').click()" class="absolute bottom-0 right-0 bg-primary text-white p-1.5 rounded-full shadow-lg">
                         <span class="material-symbols-outlined text-sm">edit</span>
@@ -2606,7 +2614,7 @@ function renderTransactionModal(transaction = null) {
                 
                 <div class="grid grid-cols-2 gap-4">
                     <div class="space-y-1">
-                        <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">סכום</label>
+                        <label id="amount-label" class="text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">סכום</label>
                         <input type="number" step="0.01" name="amount" value="${transaction?.amount || ''}" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all">
                     </div>
                     <div class="space-y-1">
@@ -2681,6 +2689,9 @@ function renderTransactionModal(transaction = null) {
                             <label class="text-xs font-bold text-blue-900/80 uppercase tracking-wider px-1">מס׳ תשלומים</label>
                             <input type="number" name="installmentsTotal" min="2" step="1" value="${transaction?.installmentsTotal || ''}" class="w-full h-12 px-3 rounded-xl bg-white border border-blue-100 focus:border-primary outline-none transition-all" placeholder="למשל 10">
                         </div>
+                        <p class="col-span-2 text-[11px] text-blue-900/70 leading-relaxed">
+                            שימו לב: השדה ״סכום״ למעלה הוא <strong>סכום התשלום החודשי הבודד</strong> (לא מחיר הקנייה הכולל). לדוגמה, קנייה ב-3,600 ₪ ב-12 תשלומים &mdash; הזינו 300.
+                        </p>
                     </div>
                 </div>
 
@@ -2799,13 +2810,16 @@ function toggleInstallmentsDetails() {
     const isInstallmentsCheckbox = document.getElementById('isInstallments');
     const details = document.getElementById('installments-details');
     const frequencySection = document.getElementById('frequency-section');
+    const amountLabel = document.getElementById('amount-label');
     if (!details || !isInstallmentsCheckbox) return;
 
     if (isInstallmentsCheckbox.checked) {
         details.classList.remove('hidden');
         if (frequencySection) frequencySection.classList.add('hidden');
+        if (amountLabel) amountLabel.textContent = 'סכום (לתשלום חודשי)';
     } else {
         details.classList.add('hidden');
+        if (amountLabel) amountLabel.textContent = 'סכום';
     }
 }
 function handleSaveTransaction(data, isEdit) {

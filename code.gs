@@ -208,11 +208,6 @@ function handleApiRequest_(e) {
         result = resolveInviteToken(payload.token || params.token || '');
         break;
 
-      case 'resetDemoData':
-      case 'clearAllData':
-        result = clearAllData();
-        break;
-
       case 'ping':
       default:
         if (action && action !== 'ping') {
@@ -421,18 +416,6 @@ function deleteCategory(value) {
     updatedAt: new Date().toISOString(),
     categories: categories
   };
-}
-
-function clearAllData() {
-  ensureAppSheets_();
-
-  writeSettings_(APP.DEFAULT_SETTINGS);
-  writeTableFromObjects_(APP.SHEETS.TRANSACTIONS, APP.HEADERS.TRANSACTIONS, []);
-  writeTableFromObjects_(APP.SHEETS.SAVINGS_GOALS, APP.HEADERS.SAVINGS_GOALS, []);
-  writeTableFromObjects_(APP.SHEETS.ACCOUNT_BALANCES, APP.HEADERS.ACCOUNT_BALANCES, []);
-  writeCategories_(APP.DEFAULT_CATEGORIES.slice());
-
-  return getBootstrapData();
 }
 
 function createInviteToken(payload, secret) {

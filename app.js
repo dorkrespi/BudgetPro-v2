@@ -87,12 +87,7 @@ const state = {
         name: '',
         profileType: '',
         invitePartner: '',
-        partnerPhone: '',
-        cycleStartDay: 1,
-        checkingBalance: '',
-        fixedIncome: '',
-        spouseSalary: '',
-        fixedExpense: ''
+        partnerPhone: ''
     },
     error: null,
     reminderModalOpen: false,
@@ -405,26 +400,11 @@ window.addEventListener('hashchange', () => {
 function render() {
     const renderStart = perfNow();
     const app = document.getElementById('app');
-    const onboardingCompleted = localStorage.getItem(ONBOARDING_DONE_KEY) === '1';
-    
-    if (!onboardingCompleted && state.currentPath !== '/onboarding') {
-        navigate('/onboarding');
-        return;
-    }
 
-    if (onboardingCompleted && state.currentPath === '/onboarding') {
-        navigate('/');
-        return;
-    }
-
-    if (state.currentPath === '/onboarding') {
-        app.innerHTML = renderOnboarding();
-        return;
-    }
-
-    // Check authentication
+    // Step 1: connect to a Google Sheet backend before anything else - the
+    // app can't do anything useful without it, so this is the first gate.
     const isAuthenticated = !!(state.settings.scriptUrl && state.settings.secretKey);
-    
+
     if (!isAuthenticated && state.currentPath !== '/login') {
         navigate('/login');
         return;
@@ -440,6 +420,26 @@ function render() {
         setTimeout(() => {
             resolveInviteTokenIfPresent();
         }, 0);
+        return;
+    }
+
+    // Step 2: once connected, a short one-time intro (name + household mode).
+    // Runs after the connection succeeds so its answers can be saved to the
+    // now-connected sheet instead of being overwritten by the next fetch.
+    const introCompleted = localStorage.getItem(ONBOARDING_DONE_KEY) === '1';
+
+    if (!introCompleted && state.currentPath !== '/onboarding') {
+        navigate('/onboarding');
+        return;
+    }
+
+    if (introCompleted && state.currentPath === '/onboarding') {
+        navigate('/');
+        return;
+    }
+
+    if (state.currentPath === '/onboarding') {
+        app.innerHTML = renderOnboarding();
         return;
     }
 
@@ -2062,18 +2062,47 @@ async function resolveInviteTokenIfPresent() {
     }
 }
 
+function toggleLoginHelp() {
+    state.loginHelpExpanded = !state.loginHelpExpanded;
+    render();
+}
+
 function renderLogin() {
     const prefill = getLoginPrefillFromHash();
+    const helpExpanded = state.loginHelpExpanded !== false; // default open
+    const hasPrefill = !!(prefill.scriptUrl || prefill.secretKey);
+
     return `
         <div class="min-h-screen flex flex-col items-center justify-center p-6 bg-background">
-            <div class="w-full max-w-sm space-y-8">
+            <div class="w-full max-w-sm space-y-6">
                 <div class="text-center">
                     <div class="w-20 h-20 bg-primary rounded-3xl flex items-center justify-center text-on-primary mx-auto mb-6 shadow-xl shadow-primary/20">
                         <span class="material-symbols-outlined text-4xl">account_balance_wallet</span>
                     </div>
                     <h1 class="text-3xl font-bold text-primary mb-2">BudgetPro</h1>
-                    <p class="text-on-surface-variant">התחבר למערכת ניהול התקציב שלך</p>
+                    <p class="text-on-surface-variant">${hasPrefill ? 'התחברות עם קישור ההזמנה שקיבלת' : 'מתחבר לגוגל שיטס שישמש כמסד הנתונים שלך'}</p>
                 </div>
+
+                ${hasPrefill ? '' : `
+                <div class="bg-primary-container/40 rounded-2xl border border-primary/20 overflow-hidden">
+                    <button type="button" onclick="toggleLoginHelp()" class="w-full flex items-center justify-between gap-2 px-4 py-3 text-right">
+                        <span class="font-bold text-sm text-primary flex items-center gap-2">
+                            <span class="material-symbols-outlined text-lg">help</span>
+                            אין לך עדיין Sheet מחובר? ככה עושים את זה
+                        </span>
+                        <span class="material-symbols-outlined text-primary">${helpExpanded ? 'expand_less' : 'expand_more'}</span>
+                    </button>
+                    ${helpExpanded ? `
+                        <ol class="px-4 pb-4 space-y-2 text-sm text-on-surface list-decimal list-inside">
+                            <li>פתחו Google Sheet חדש &rarr; <b>Extensions &rarr; Apps Script</b>.</li>
+                            <li>מחקו את הקוד הקיים והדביקו במקומו את <b>code.gs</b> (מ-<a href="https://github.com/dorkrespi/BudgetPro-v2/blob/main/code.gs" target="_blank" rel="noopener" class="text-primary underline">הריפו</a>).</li>
+                            <li><b>Project Settings &rarr; Script properties</b> &rarr; הוסיפו <code class="bg-white/60 px-1 rounded">SECRET_KEY</code> עם מחרוזת סודית משלכם.</li>
+                            <li><b>Deploy &rarr; New deployment &rarr; Web app</b>. Execute as: <b>Me</b>, Who has access: <b>Anyone</b>. העתיקו את כתובת ה-<code class="bg-white/60 px-1 rounded">/exec</code>.</li>
+                            <li>הדביקו את הכתובת ואת הסוד כאן למטה ולחצו התחברות. הסנכרון הראשון ייצור את כל הטאבים ב-Sheet.</li>
+                        </ol>
+                    ` : ''}
+                </div>
+                `}
 
                 <div class="space-y-4">
                     <div class="space-y-2">
@@ -2118,112 +2147,56 @@ function prevOnboardingStep() {
 }
 
 function nextOnboardingStep() {
-    if (state.onboardingStep === 1 && !String(state.onboardingData.name || '').trim()) {
+    if (state.onboardingStep === 0 && !String(state.onboardingData.name || '').trim()) {
         alert('כדי להמשיך, צריך שם קטן להיכרות.');
         return;
     }
-    if (state.onboardingStep === 2 && !state.onboardingData.profileType) {
+    if (state.onboardingStep === 1 && !state.onboardingData.profileType) {
         alert('בחר/י סוג ניהול כדי שנתאים את החוויה.');
         return;
     }
-    state.onboardingStep = Math.min(5, state.onboardingStep + 1);
+    state.onboardingStep = Math.min(2, state.onboardingStep + 1);
     saveOnboardingDraft();
     render();
 }
 
 function finishOnboarding() {
     const name = String(state.onboardingData.name || '').trim() || 'משתמש';
-    const cycleStartDay = Math.max(1, Math.min(28, Number(state.onboardingData.cycleStartDay) || 1));
-    const checkingBalance = Number(state.onboardingData.checkingBalance) || 0;
-    const fixedIncome = Number(state.onboardingData.fixedIncome) || 0;
-    const spouseSalary = Number(state.onboardingData.spouseSalary) || 0;
-    const fixedExpense = Number(state.onboardingData.fixedExpense) || 0;
-    const today = formatDateLocal(new Date());
 
     state.settings.userName = name;
-    state.settings.cycleStartDay = cycleStartDay;
     state.settings.householdMode = state.onboardingData.profileType || 'personal';
     state.settings.partnerPhone = state.onboardingData.partnerPhone || '';
-
-    // Initialize first-run data from the onboarding answers.
-    state.transactions = [];
-    state.savingsGoals = [];
-    state.accountBalances = [];
-
-    if (checkingBalance > 0) {
-        state.accountBalances.push({
-            id: `acc-${Date.now()}`,
-            name: 'חשבון עו״ש ראשי',
-            amount: checkingBalance,
-            type: 'checking',
-            lastUpdated: new Date().toISOString()
-        });
-    }
-
-    if (fixedIncome > 0) {
-        state.transactions.push({
-            id: `tx-inc-${Date.now()}`,
-            name: 'הכנסה חודשית קבועה',
-            amount: fixedIncome,
-            type: 'fixed_income',
-            date: today,
-            category: 'משכורת',
-            isRecurring: true,
-            frequency: 'monthly',
-            desc: 'הוגדר בשלב ההיכרות'
-        });
-    }
-
-    if (spouseSalary > 0) {
-        state.transactions.push({
-            id: `tx-spouse-inc-${Date.now() + 2}`,
-            name: 'משכורת בן/בת זוג',
-            amount: spouseSalary,
-            type: 'fixed_income',
-            date: today,
-            category: 'משכורת',
-            isRecurring: true,
-            frequency: 'monthly',
-            desc: 'הוגדר בשלב ההיכרות'
-        });
-    }
-
-    if (fixedExpense > 0) {
-        state.transactions.push({
-            id: `tx-exp-${Date.now() + 1}`,
-            name: 'הוצאה חודשית קבועה',
-            amount: fixedExpense,
-            type: 'fixed_expense',
-            date: today,
-            category: 'מגורים',
-            isRecurring: true,
-            frequency: 'monthly',
-            desc: 'הוגדר בשלב ההיכרות'
-        });
-    }
 
     localStorage.setItem('budget_settings', JSON.stringify(state.settings));
     localStorage.setItem(ONBOARDING_DONE_KEY, '1');
     localStorage.removeItem(ONBOARDING_DRAFT_KEY);
-    navigate('/login');
+
+    // The connection to the sheet already happened (this intro only runs
+    // after a successful login), so push these answers there right away -
+    // otherwise the next fetch would silently overwrite them with whatever
+    // is already on the sheet.
+    saveDataToGAS('updateSettings', state.settings, { showLoading: true });
+
+    navigate('/');
 }
 
 function renderOnboarding() {
     const step = state.onboardingStep;
-    const progress = ((step + 1) / 6) * 100;
+    const totalSteps = 3;
+    const progress = ((step + 1) / totalSteps) * 100;
 
     const stepContent = (() => {
         if (step === 0) {
             return `
-                <div class="space-y-6 text-center">
-                    <div class="w-20 h-20 rounded-3xl bg-primary/15 mx-auto flex items-center justify-center text-primary">
-                        <span class="material-symbols-outlined text-5xl">waving_hand</span>
+                <div class="space-y-6">
+                    <div class="w-16 h-16 rounded-3xl bg-primary/15 flex items-center justify-center text-primary">
+                        <span class="material-symbols-outlined text-3xl">waving_hand</span>
                     </div>
                     <div>
-                        <h1 class="text-3xl font-black text-on-surface">ברוכים הבאים ל-BudgetPro</h1>
-                        <p class="text-on-surface-variant mt-2">כמה מסכים קלילים ונגדיר הכל יחד תוך דקה.</p>
+                        <h1 class="text-2xl font-black text-on-surface">מחוברים! עוד רגע ומתחילים</h1>
+                        <p class="text-on-surface-variant mt-2">היי, מה שמך?</p>
                     </div>
-                    <button onclick="nextOnboardingStep()" class="w-full h-14 bg-primary text-on-primary rounded-2xl font-bold text-lg shadow-lg shadow-primary/20">יאללה מתחילים</button>
+                    <input type="text" value="${state.onboardingData.name || ''}" oninput="updateOnboardingField('name', this.value)" placeholder="למשל: דניאל" class="w-full h-14 px-4 rounded-2xl bg-white border-2 border-surface-variant/40 focus:border-primary outline-none transition-all">
                 </div>
             `;
         }
@@ -2231,18 +2204,8 @@ function renderOnboarding() {
         if (step === 1) {
             return `
                 <div class="space-y-6">
-                    <h2 class="text-2xl font-black">היי, מה שמך?</h2>
-                    <p class="text-on-surface-variant">אנחנו רוצים להכיר אותך כדי להתאים את המערכת אישית.</p>
-                    <input type="text" value="${state.onboardingData.name || ''}" oninput="updateOnboardingField('name', this.value)" placeholder="למשל: דניאל" class="w-full h-14 px-4 rounded-2xl bg-white border-2 border-surface-variant/40 focus:border-primary outline-none transition-all">
-                </div>
-            `;
-        }
-
-        if (step === 2) {
-            return `
-                <div class="space-y-6">
                     <h2 class="text-2xl font-black">איך ננהל את הכסף?</h2>
-                    <p class="text-on-surface-variant">זה יעזור לנו לכוון את הדשבורד והסיכומים.</p>
+                    <p class="text-on-surface-variant">זה קובע אם אפשר יהיה להזמין בן/בת זוג לאותו חשבון.</p>
                     <div class="grid grid-cols-1 gap-3">
                         <button onclick="selectOnboardingProfile('family')" class="p-5 rounded-2xl border-2 text-right transition-all ${state.onboardingData.profileType === 'family' ? 'border-primary bg-primary/10' : 'border-surface-variant/30 bg-white'}">
                             <p class="font-extrabold">אני כאן כדי לנהל תא משפחתי</p>
@@ -2263,68 +2226,10 @@ function renderOnboarding() {
                             </div>
                             ${state.onboardingData.invitePartner === 'yes' ? `
                                 <input type="tel" dir="ltr" value="${state.onboardingData.partnerPhone || ''}" oninput="updateOnboardingField('partnerPhone', this.value)" placeholder="טלפון בן/בת זוג (למשל 05XXXXXXXX)" class="w-full h-12 px-3 rounded-xl bg-white border border-surface-variant/40 outline-none focus:border-primary">
+                                <p class="text-xs text-on-surface-variant">אפשר גם לשלוח את ההזמנה מאוחר יותר, מתוך ההגדרות.</p>
                             ` : ''}
                         </div>
                     ` : ''}
-                </div>
-            `;
-        }
-
-        if (step === 3) {
-            return `
-                <div class="space-y-6">
-                    <h2 class="text-2xl font-black">איך האפליקציה תעזור לך?</h2>
-                    <div class="space-y-3">
-                        <div class="p-4 rounded-2xl bg-white border border-surface-variant/30">
-                            <p class="font-bold">תזרים חודשי חכם</p>
-                            <p class="text-xs text-on-surface-variant">כמה נכנס, כמה יוצא, וכמה נשאר לבזבוז בכל מחזור.</p>
-                        </div>
-                        <div class="p-4 rounded-2xl bg-white border border-surface-variant/30">
-                            <p class="font-bold">תחזית קדימה</p>
-                            <p class="text-xs text-on-surface-variant">תמונת מצב עתידית עם הכנסות צפויות, הוצאות והפקדות לחיסכון.</p>
-                        </div>
-                        <div class="p-4 rounded-2xl bg-white border border-surface-variant/30">
-                            <p class="font-bold">ניהול יעדי חיסכון</p>
-                            <p class="text-xs text-on-surface-variant">מעקב יעד, הפקדות אוטומטיות והפקדות נוספות בכל רגע.</p>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-
-        if (step === 4) {
-            return `
-                <div class="space-y-5">
-                    <h2 class="text-2xl font-black">שאלון קצר להתחלה</h2>
-                    <p class="text-on-surface-variant text-sm">הנתונים האלו יתנו בסיס ראשוני לתזרים ולתחזית.</p>
-                    <div class="grid grid-cols-2 gap-3">
-                        <div class="space-y-1 col-span-2">
-                            <label class="text-xs font-bold text-on-surface-variant">יום תחילת מחזור (כמו בהגדרות)</label>
-                            <div class="grid grid-cols-4 gap-2">
-                                ${[1,2,10,15].map(day => `
-                                    <button type="button" onclick="updateOnboardingField('cycleStartDay', ${day}); render();" class="h-11 rounded-xl font-bold border transition-all ${Number(state.onboardingData.cycleStartDay || 1) === day ? 'bg-primary text-white border-primary' : 'bg-white border-surface-variant/40'}">${day}</button>
-                                `).join('')}
-                            </div>
-                        </div>
-                        <div class="space-y-1">
-                            <label class="text-xs font-bold text-on-surface-variant">יתרת עו״ש נוכחית</label>
-                            <input type="number" min="0" value="${state.onboardingData.checkingBalance || ''}" oninput="updateOnboardingField('checkingBalance', this.value)" class="w-full h-12 px-3 rounded-xl bg-white border border-surface-variant/40 outline-none focus:border-primary">
-                        </div>
-                        <div class="space-y-1">
-                            <label class="text-xs font-bold text-on-surface-variant">הכנסה חודשית קבועה</label>
-                            <input type="number" min="0" value="${state.onboardingData.fixedIncome || ''}" oninput="updateOnboardingField('fixedIncome', this.value)" class="w-full h-12 px-3 rounded-xl bg-white border border-surface-variant/40 outline-none focus:border-primary">
-                        </div>
-                        ${state.onboardingData.profileType === 'family' ? `
-                            <div class="space-y-1 col-span-2">
-                                <label class="text-xs font-bold text-on-surface-variant">שכר בן/בת זוג (אם יש)</label>
-                                <input type="number" min="0" value="${state.onboardingData.spouseSalary || ''}" oninput="updateOnboardingField('spouseSalary', this.value)" class="w-full h-12 px-3 rounded-xl bg-white border border-surface-variant/40 outline-none focus:border-primary">
-                            </div>
-                        ` : ''}
-                        <div class="space-y-1">
-                            <label class="text-xs font-bold text-on-surface-variant">הוצאה חודשית קבועה</label>
-                            <input type="number" min="0" value="${state.onboardingData.fixedExpense || ''}" oninput="updateOnboardingField('fixedExpense', this.value)" class="w-full h-12 px-3 rounded-xl bg-white border border-surface-variant/40 outline-none focus:border-primary">
-                        </div>
-                    </div>
                 </div>
             `;
         }
@@ -2335,10 +2240,10 @@ function renderOnboarding() {
                     <span class="material-symbols-outlined text-5xl">check_circle</span>
                 </div>
                 <div>
-                    <h2 class="text-3xl font-black">איזה כיף, סיימנו!</h2>
-                    <p class="text-on-surface-variant mt-2">יצרנו בסיס התחלתי. בשלב הבא רק מתחברים לנתונים שלך ומתחילים לעבוד.</p>
+                    <h2 class="text-3xl font-black">מוכנים!</h2>
+                    <p class="text-on-surface-variant mt-2">החיבור ל-Sheet כבר קיים. אפשר להתחיל להוסיף הכנסות, הוצאות ויעדי חיסכון אמיתיים.</p>
                 </div>
-                <button onclick="finishOnboarding()" class="w-full h-14 bg-primary text-on-primary rounded-2xl font-bold text-lg shadow-lg shadow-primary/20">לעמוד ההתחברות</button>
+                <button onclick="finishOnboarding()" class="w-full h-14 bg-primary text-on-primary rounded-2xl font-bold text-lg shadow-lg shadow-primary/20">לאפליקציה</button>
             </div>
         `;
     })();
@@ -2350,15 +2255,15 @@ function renderOnboarding() {
                     <div class="h-full bg-primary transition-all duration-500" style="width: ${progress}%"></div>
                 </div>
 
-                <div class="bg-white/90 backdrop-blur-sm rounded-[2rem] p-6 md:p-8 border border-surface-variant/30 shadow-xl min-h-[68vh] flex flex-col justify-between">
+                <div class="bg-white/90 backdrop-blur-sm rounded-[2rem] p-6 md:p-8 border border-surface-variant/30 shadow-xl min-h-[60vh] flex flex-col justify-between">
                     <div class="transition-all duration-300 ease-out translate-y-0 opacity-100">
                         ${stepContent}
                     </div>
 
                     <div class="pt-6 flex items-center justify-between">
                         <button onclick="prevOnboardingStep()" class="h-11 px-4 rounded-xl border border-surface-variant/40 font-bold ${step === 0 ? 'opacity-0 pointer-events-none' : 'opacity-100'}">חזרה</button>
-                        <span class="text-xs text-on-surface-variant font-bold">שלב ${step + 1} מתוך 6</span>
-                        <button onclick="nextOnboardingStep()" class="h-11 px-5 rounded-xl bg-primary text-white font-bold ${step === 5 ? 'opacity-0 pointer-events-none' : 'opacity-100'}">המשך</button>
+                        <span class="text-xs text-on-surface-variant font-bold">שלב ${step + 1} מתוך ${totalSteps}</span>
+                        <button onclick="nextOnboardingStep()" class="h-11 px-5 rounded-xl bg-primary text-white font-bold ${step === totalSteps - 1 ? 'opacity-0 pointer-events-none' : 'opacity-100'}">המשך</button>
                     </div>
                 </div>
             </div>

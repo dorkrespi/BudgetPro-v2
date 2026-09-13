@@ -171,6 +171,15 @@ Small things that add up to the app not lying to you about its own state:
 - **Fail-closed auth.** An Apps Script deployment with no `SECRET_KEY` set used
   to mean *anyone with the URL* had full read/write access, silently. It now
   refuses every request until a secret is configured.
+- **Mutations require POST.** `doGet` and `doPost` used to route to the exact
+  same dispatch, so a GET request — triggerable by a bare `<img src>`, browser
+  link-prefetching, or a scanner following URLs with no user behind them —
+  could change data as long as it had the secret. GET is now restricted to
+  the handful of read-only actions the client actually uses that way.
+- **Every request is logged.** One line per request (action + method) and one
+  on any thrown error, visible in the Apps Script editor's Executions log —
+  there was previously no way to see what happened after the fact without
+  reproducing an issue by hand.
 
 ## Data model
 

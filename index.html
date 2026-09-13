@@ -2,8 +2,18 @@
 <html lang="he" dir="rtl">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>BudgetPro</title>
+
+    <!-- PWA: installable app -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#6750A4">
+    <link rel="icon" href="icons/icon-32.png" sizes="32x32" type="image/png">
+    <link rel="apple-touch-icon" href="icons/icon-180.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="default">
+    <meta name="apple-mobile-web-app-title" content="BudgetPro">
+
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -206,6 +216,9 @@
         </div>
     </div>
 
+    <!-- Toast Container: lives outside #app so it survives full re-renders -->
+    <div id="toast-container" class="fixed inset-x-0 bottom-24 z-[200] flex flex-col items-center gap-2 px-4 pointer-events-none"></div>
+
     <!-- Modal Container -->
     <div id="modal-container" class="fixed inset-0 z-50 hidden">
         <div id="modal-backdrop" class="absolute inset-0 bg-black/40 backdrop-blur-sm opacity-0 transition-opacity duration-300"></div>
@@ -216,5 +229,16 @@
 
     <!-- App Logic -->
     <script src="app.js"></script>
+
+    <!-- PWA: register service worker for offline shell + installability -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js').catch((err) => {
+                    console.warn('Service worker registration failed:', err);
+                });
+            });
+        }
+    </script>
 </body>
 </html>

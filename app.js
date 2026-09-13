@@ -668,6 +668,27 @@ function renderLoadingOverlay() {
     `;
 }
 
+function showToast(message, type = 'error') {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+
+    const styles = {
+        error: 'bg-rose-600',
+        success: 'bg-emerald-600',
+        info: 'bg-on-surface'
+    };
+
+    const toast = document.createElement('div');
+    toast.className = `pointer-events-auto ${styles[type] || styles.info} text-white text-sm font-bold px-4 py-3 rounded-2xl shadow-lg max-w-sm w-full text-center transition-opacity duration-300`;
+    toast.textContent = message;
+    container.appendChild(toast);
+
+    setTimeout(() => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+    }, 4000);
+}
+
 function startLoading(message) {
     state.loadingCount = (state.loadingCount || 0) + 1;
     state.isLoading = true;
@@ -2544,6 +2565,7 @@ async function saveDataToGAS(action, data, options = {}) {
             }
         } catch (error) {
             console.error('Error saving data:', error);
+            showToast('השמירה נכשלה - בדוק/י את החיבור. השינוי נשמר במכשיר ויסונכרן כשהחיבור יחזור.', 'error');
             // Recovery sync if save failed.
             try {
                 await fetchDataFromGAS({ showLoading: false });

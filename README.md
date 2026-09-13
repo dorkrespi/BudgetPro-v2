@@ -48,6 +48,7 @@ edits, so I built the app instead.
 | **Salary-cycle budgeting** | The "current month" everywhere in the app runs from your payday to the next. |
 | **Onboarding + partner invites** | Guided first-run setup. Generate a one-time, expiring invite link (WhatsApp deep-link) so a partner connects to the same backend without ever seeing the shared secret. |
 | **Categories & charts** | Editable categories with Material Symbols icons; category-breakdown donut on the home screen. |
+| **Installable (PWA)** | A web app manifest and a shell-caching service worker mean it can be added to a phone's home screen and opens instantly even on a flaky connection. Live data still always comes from the network - the service worker never caches the Apps Script API. |
 
 ## Architecture
 
@@ -152,9 +153,10 @@ from the Apps Script editor (or via [`clasp`](https://github.com/google/clasp)).
 
 ## Tech stack
 
-Vanilla JavaScript · Tailwind CSS (CDN) · Chart.js · Google Apps Script · Google
-Sheets · GitHub Pages. Scaffolded in Google AI Studio, then rebuilt by hand into
-the vanilla-JS app it is now, with AI-assisted development along the way.
+Vanilla JavaScript · Tailwind CSS (CDN) · Chart.js · a Service Worker (PWA) ·
+Google Apps Script · Google Sheets · GitHub Pages. Scaffolded in Google AI
+Studio, then rebuilt by hand into the vanilla-JS app it is now, with
+AI-assisted development along the way.
 
 ## License
 

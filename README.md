@@ -1,23 +1,40 @@
 # BudgetPro
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![PWA](https://img.shields.io/badge/PWA-installable-6750A4)](manifest.json)
+[![Live demo](https://img.shields.io/badge/demo-GitHub%20Pages-6750A4)](https://dorkrespi.github.io/BudgetPro-v2/)
 
 A Hebrew (RTL), mobile-first personal-finance app I built to run my own household
 budget — and have used for real since early 2026. It turns everything you already
 know is coming (salaries, recurring bills, installment plans, standing savings
 deposits) into a rolling 12-month projection of what each account will actually
-hold, month by month.
+hold, month by month, backed by a Google Sheet instead of a proprietary server.
 
 **Live demo → https://dorkrespi.github.io/BudgetPro-v2/**
-The demo opens on the onboarding screen; connect a Google Sheet backend (2-minute
-setup, [below](#deploy-your-own-copy)) to load and persist data. The screenshots
-below show the app populated with sample data.
+The demo opens on the connect screen with an in-app checklist for setting up your
+own Google Sheet backend (2 minutes, see [Deploy your own copy](#deploy-your-own-copy)).
+The screenshots below show the app populated with sample data.
 
 | Home | Forecast | Savings | Transactions |
 |---|---|---|---|
 | ![Home](docs/home.jpg) | ![Forecast](docs/forecast.jpg) | ![Savings](docs/savings.jpg) | ![Transactions](docs/transactions.jpg) |
 
 ---
+
+## Contents
+
+- [The problem it solves](#the-problem-it-solves)
+- [Features](#features)
+- [Architecture](#architecture)
+- [Engineering notes](#engineering-notes)
+- [Reliability & UX safeguards](#reliability--ux-safeguards)
+- [Data model](#data-model)
+- [Deploy your own copy](#deploy-your-own-copy)
+- [Local development](#local-development)
+- [How this gets tested](#how-this-gets-tested)
+- [Known limitations](#known-limitations)
+- [Tech stack](#tech-stack)
+- [License](#license)
 
 ## The problem it solves
 
@@ -46,9 +63,11 @@ edits, so I built the app instead.
 | **Accounts** | Checking / savings / investment balances as the forecast's starting points, tracked separately so the projection distinguishes liquid cash from savings. |
 | **12-month forecast** | Per-month projected closing balance for checking and savings, with an interactive chart and a month-by-month breakdown of every contributing line. |
 | **Salary-cycle budgeting** | The "current month" everywhere in the app runs from your payday to the next. |
-| **Onboarding + partner invites** | Guided first-run setup. Generate a one-time, expiring invite link (WhatsApp deep-link) so a partner connects to the same backend without ever seeing the shared secret. |
+| **Connect + light onboarding** | First launch asks you to connect a Google Sheet, with an in-app checklist for setting one up. A short 2-step intro (name, household mode) follows *after* the connection succeeds, so nothing typed is ever silently lost. |
+| **Partner invites** | Generate a one-time, expiring invite link (WhatsApp deep-link) so a partner connects to the same backend without ever seeing the shared secret. |
+| **Undo, not just confirm** | Deleting a transaction, savings goal, or account removes it instantly but holds the actual write for 5 seconds behind an undo toast — nothing reaches the Sheet until the window closes. |
 | **Categories & charts** | Editable categories with Material Symbols icons; category-breakdown donut on the home screen. |
-| **Installable (PWA)** | A web app manifest and a shell-caching service worker mean it can be added to a phone's home screen and opens instantly even on a flaky connection. Live data still always comes from the network - the service worker never caches the Apps Script API. |
+| **Installable (PWA)** | A web app manifest and a shell-caching service worker mean it can be added to a phone's home screen and opens instantly even on a flaky connection. Live data still always comes from the network — the service worker never caches the Apps Script API. |
 
 ## Architecture
 
@@ -57,7 +76,9 @@ flowchart LR
     subgraph Client["Browser — static, no build"]
         UI["index.html + app.js<br/>vanilla JS · hash router · string-template views"]
         LS[("localStorage<br/>settings · onboarding · bill reminders")]
+        SW["Service worker<br/>caches the shell only"]
         UI --- LS
+        UI --- SW
     end
 
     subgraph Backend["Google Apps Script Web App"]
@@ -98,8 +119,9 @@ A few things I'd point a reviewer at:
   state and re-renders immediately, then enqueues a `POST`. Writes are chained
   (`saveQueuePromise = saveQueuePromise.then(runSave)`) so they can't race the
   Sheet. Each action returns a *typed result* that patches local state in place —
-  no full refetch on the happy path. A failed write triggers one recovery sync
-  and otherwise keeps the optimistic state rather than clobbering it.
+  no full refetch on the happy path. A failed write shows a toast, triggers one
+  recovery sync, and otherwise keeps the optimistic state rather than clobbering
+  it.
 - **Salary-cycle dates.** `getCycleDates` derives the budget month from
   `cycleStartDay`, rolling back a month when "now" is before this month's payday;
   transaction dates are remapped into the active cycle for display and filtering.
@@ -107,6 +129,33 @@ A few things I'd point a reviewer at:
   by design, it's how a partner bootstraps. Tokens are single-use, time-limited,
   stored in their own sheet, and the endpoint returns the `scriptUrl` + secret
   only on a valid, unused, unexpired token, then marks it consumed.
+- **Connect-first onboarding.** The app used to run a 6-step wizard *before* ever
+  asking for a Sheet connection, including a "starter questionnaire" (opening
+  balance, income, expenses). It looked helpful but was pure busywork: those
+  answers only ever touched in-memory state, and the moment the user connected,
+  `getBootstrapData` overwrote them with the (empty) new sheet — same for
+  `userName` and `cycleStartDay`, both real settings fields silently reset by the
+  next fetch. The flow now connects first, then runs a 2-step intro whose answers
+  are written back with `saveDataToGAS('updateSettings', ...)` immediately, so
+  they survive the fetch that follows.
+
+## Reliability & UX safeguards
+
+Small things that add up to the app not lying to you about its own state:
+
+- **Save-failure toast.** Optimistic UI means an edit appears instantly whether or
+  not it reached the Sheet. If the write fails, a toast says so explicitly instead
+  of failing silently — the local change is kept and a recovery sync is attempted.
+- **Undo for delete.** No `confirm()` dialogs. Deleting removes the item locally
+  right away and shows an undo toast for 5 seconds; the actual delete request is
+  only sent if that window closes without a tap on "בטל" (undo). Undoing sends
+  nothing to the backend at all.
+- **Fallback avatar.** A missing profile photo renders a plain icon instead of a
+  broken `<img>` with English alt text leaking into an all-Hebrew UI.
+- **Scoped service worker.** The cache only ever holds `index.html`, `app.js`, and
+  `manifest.json`. Its fetch handler explicitly skips non-GET requests and
+  anything off the app's own origin, so a stale cache can never serve financial
+  data in place of a live fetch.
 
 ## Data model
 
@@ -133,8 +182,9 @@ One tab per entity, first row = headers:
    Anyone*. Copy the `/exec` URL.
 
 **Frontend:** use the [live demo](https://dorkrespi.github.io/BudgetPro-v2/), or
-host your own copy of `index.html` + `app.js` on any static host. In onboarding,
-paste the `/exec` URL and the same secret. The first sync creates every sheet tab
+host your own copy of `index.html` + `app.js` on any static host. On first
+launch, paste the `/exec` URL and the same secret into the connect screen — it
+has the same checklist above built in. The first sync creates every sheet tab
 and seeds default categories.
 
 Nothing sensitive lives in this repo — `scriptUrl` and `secretKey` are entered in
@@ -150,6 +200,36 @@ python3 -m http.server 8000   # → http://localhost:8000
 
 Edit `app.js` / `index.html`, refresh. Backend changes go in `code.gs`, re-deployed
 from the Apps Script editor (or via [`clasp`](https://github.com/google/clasp)).
+
+## How this gets tested
+
+There's no automated test suite yet (see [Known limitations](#known-limitations)).
+Every change in this repo's history was instead verified by running the app
+against a local static server and driving the real UI — filling in the actual
+forms, clicking through onboarding and delete/undo flows, and checking the
+browser console for unexpected errors — rather than trusting a diff by
+inspection. It's slower than `npm test`, but it's what caught the missing
+profile-photo fallback (see above) before it shipped, and confirmed the
+onboarding reorder doesn't break the redirect flow for already-connected
+users.
+
+## Known limitations
+
+Written down instead of hidden:
+
+- **No automated tests.** Verification is manual (see above). A file this size
+  would benefit from at least unit tests around `generateForecastData`, the
+  single riskiest function to regress.
+- **Last-write-wins sync.** Two devices editing at the same time can overwrite
+  each other; there's no conflict detection or merge.
+- **`householdMode` and `partnerPhone` aren't in the Sheet's typed schema.**
+  `code.gs`'s `normalizeSettingsObject_` only persists eight known settings
+  fields, so those two are saved to `localStorage` and pushed to the backend on
+  every `updateSettings` call, but silently dropped by the server's own
+  normalization — they don't yet survive a fresh login on a second device.
+  Fixing it means extending the server-side settings schema.
+- **Single shared secret per household.** Anyone with the secret has full
+  read/write access; there's no per-user permission model.
 
 ## Tech stack
 

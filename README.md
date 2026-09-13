@@ -53,6 +53,11 @@ I wanted one number — *"what will the checking account read at the end of
 March?"* — that folds all of that in. No spreadsheet I built kept up with the
 edits, so I built the app instead.
 
+There's a second reason it's shaped this way: most budgeting apps want your
+bank credentials and a monthly fee. This one doesn't. Connect your own Google
+Sheet and it's the only backend that ever exists — no third party holds the
+data, and there's nothing to keep paying for.
+
 ## Features
 
 | Area | What it does |
@@ -68,6 +73,7 @@ edits, so I built the app instead.
 | **Undo, not just confirm** | Deleting a transaction, savings goal, or account removes it instantly but holds the actual write for 5 seconds behind an undo toast — nothing reaches the Sheet until the window closes. |
 | **Categories & charts** | Editable categories with Material Symbols icons; category-breakdown donut on the home screen. |
 | **Installable (PWA)** | A web app manifest and a shell-caching service worker mean it can be added to a phone's home screen and opens instantly even on a flaky connection. Live data still always comes from the network — the service worker never caches the Apps Script API. |
+| **Quick-add via URL** | `#/transactions?quickAdd=1&merchant=…&amount=…&date=…&type=…` opens the transaction modal pre-filled with those values — built for wiring up an iOS Shortcut, a browser bookmarklet, or any automation that can construct a URL, so logging a purchase is a couple of taps instead of opening the app and filling a form from scratch. |
 
 ## Architecture
 

@@ -162,6 +162,15 @@ Small things that add up to the app not lying to you about its own state:
   `manifest.json`. Its fetch handler explicitly skips non-GET requests and
   anything off the app's own origin, so a stale cache can never serve financial
   data in place of a live fetch.
+- **A locked backend.** Every request to `code.gs` is serialized through
+  `LockService.getScriptLock()` before it touches the Sheet. Two overlapping
+  requests used to be able to race inside the same read-clear-write cycle -
+  one clearing a table's body while the other was still writing to it - which
+  could corrupt data outright, not just lose an edit. Now a request that can't
+  get the lock within 10s fails cleanly instead of racing.
+- **Fail-closed auth.** An Apps Script deployment with no `SECRET_KEY` set used
+  to mean *anyone with the URL* had full read/write access, silently. It now
+  refuses every request until a secret is configured.
 
 ## Data model
 
@@ -226,8 +235,11 @@ Written down instead of hidden:
 - **No automated tests.** Verification is manual (see above). A file this size
   would benefit from at least unit tests around `generateForecastData`, the
   single riskiest function to regress.
-- **Last-write-wins sync.** Two devices editing at the same time can overwrite
-  each other; there's no conflict detection or merge.
+- **Last-write-wins sync.** A script-wide lock (see "Reliability & UX
+  safeguards" above) keeps two overlapping requests from corrupting the Sheet,
+  but there's still no conflict *detection* or merge — two devices editing at
+  the same time settle on whoever's write lands second, safely, without a
+  warning to either side.
 - **`householdMode` and `partnerPhone` aren't in the Sheet's typed schema.**
   `code.gs`'s `normalizeSettingsObject_` only persists eight known settings
   fields, so those two are saved to `localStorage` and pushed to the backend on

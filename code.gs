@@ -62,10 +62,14 @@ const APP = {
 
 function getSecretConfig_() {
   const props = PropertiesService.getScriptProperties();
+  // Three names are checked for backward compatibility with older deployments.
+  // README.md documents SECRET_KEY as the canonical name - once you've
+  // confirmed that's what your Script Properties actually uses, feel free to
+  // drop the other two fallbacks here.
   return {
     secret:
-      props.getProperty('secretkey') ||
       props.getProperty('SECRET_KEY') ||
+      props.getProperty('secretkey') ||
       props.getProperty('BUDGET_SHARED_SECRET') ||
       ''
   };
@@ -73,7 +77,12 @@ function getSecretConfig_() {
 
 function validateSecret_(provided) {
   const expected = String(getSecretConfig_().secret || '').trim();
-  if (!expected) return true;
+  if (!expected) {
+    // Fail closed: an unconfigured secret used to mean "anyone can read and
+    // write your data," silently. Refuse instead - set SECRET_KEY in
+    // Project Settings -> Script properties (see README) to use the app.
+    throw new Error('Server misconfigured: no SECRET_KEY set in Script properties.');
+  }
 
   const actual = String(provided || '').trim();
   if (actual !== expected) throw new Error('Invalid secret key');
@@ -89,6 +98,28 @@ function doPost(e) {
 }
 
 function handleApiRequest_(e) {
+  // Serialize every request through a script-wide lock. Without this, two
+  // overlapping requests (two devices, or a client retrying a slow call)
+  // could race inside writeValues_ - one clearing the sheet body while the
+  // other is still writing to it - and corrupt the data, not just "last
+  // write wins" the way the README describes it. 10s is generous for a
+  // Sheets read/write; a request that can't get the lock in that window
+  // fails cleanly instead of racing.
+  const lock = LockService.getScriptLock();
+  let hasLock = false;
+  try {
+    hasLock = lock.tryLock(10000);
+  } catch (lockErr) {
+    hasLock = false;
+  }
+
+  if (!hasLock) {
+    return jsonReply_(
+      { ok: false, message: 'Server is busy handling another request - please try again in a moment.' },
+      (e && e.parameter && e.parameter.callback) || ''
+    );
+  }
+
   try {
     const params = (e && e.parameter) || {};
     const body = parseJsonBody_(e);
@@ -213,6 +244,8 @@ function handleApiRequest_(e) {
       { ok: false, message: err && err.message ? err.message : String(err) },
       (e && e.parameter && e.parameter.callback) || ''
     );
+  } finally {
+    lock.releaseLock();
   }
 }
 
@@ -823,6 +856,15 @@ function clearTableBody_(sheet, colCount) {
 }
 
 function ensureAppSheets_() {
+  // This used to run its full 6-sheet header check on every single API call,
+  // including a plain "add one transaction." Cache a "verified" flag for a
+  // few minutes so the common case is a single cache read instead of six
+  // getSheet_ calls plus header comparisons. Worst case if someone edits the
+  // sheet structure by hand mid-session: repair is delayed by up to the TTL,
+  // which is an acceptable tradeoff for a personal-use backend.
+  const cache = CacheService.getScriptCache();
+  if (cache.get('sheetsVerified') === '1') return;
+
   Object.keys(APP.SHEETS).forEach(function(key) {
     getSheet_(APP.SHEETS[key], APP.HEADERS[key] || ['value']);
   });
@@ -836,6 +878,8 @@ function ensureAppSheets_() {
   if (categoriesSheet.getLastRow() < 2) {
     writeCategories_(APP.DEFAULT_CATEGORIES.slice());
   }
+
+  cache.put('sheetsVerified', '1', 300); // 5 minutes
 }
 
 function getSheet_(sheetName, headers) {

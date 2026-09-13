@@ -90,14 +90,25 @@ function validateSecret_(provided) {
 }
 
 function doGet(e) {
-  return handleApiRequest_(e);
+  return handleApiRequest_(e, 'GET');
 }
 
 function doPost(e) {
-  return handleApiRequest_(e);
+  return handleApiRequest_(e, 'POST');
 }
 
-function handleApiRequest_(e) {
+// Actions safe to run from a GET request - read-only, or (resolveInviteToken)
+// already single-use and expiring. Everything else mutates the sheet and
+// must come in as POST: a GET can be triggered by a bare <img src>, browser
+// prefetching, or link scanning with no user intent behind it, none of which
+// should be able to change data even if they somehow had the secret.
+const GET_ALLOWED_ACTIONS_ = ['', 'ping', 'getBootstrapData', 'getState', 'resolveInviteToken'];
+
+function handleApiRequest_(e, method) {
+  // Declared outside the try block so the catch/logging below can still
+  // report which action failed.
+  let action = '';
+
   // Serialize every request through a script-wide lock. Without this, two
   // overlapping requests (two devices, or a client retrying a slow call)
   // could race inside writeValues_ - one clearing the sheet body while the
@@ -124,8 +135,14 @@ function handleApiRequest_(e) {
     const params = (e && e.parameter) || {};
     const body = parseJsonBody_(e);
 
-    let action = String(params.action || '').trim();
+    action = String(params.action || '').trim();
     if (!action && body && body.action) action = String(body.action || '').trim();
+
+    if (method === 'GET' && GET_ALLOWED_ACTIONS_.indexOf(action) === -1) {
+      throw new Error('Action "' + action + '" requires POST.');
+    }
+
+    console.log('BudgetPro request: action=' + (action || '(none)') + ' method=' + method);
 
     let payload;
     if (params.payload !== undefined && String(params.payload) !== '') {
@@ -148,12 +165,6 @@ function handleApiRequest_(e) {
       case 'getBootstrapData':
       case 'getState':
         result = getBootstrapData();
-        break;
-
-      case 'saveSetup':
-      case 'replaceAllData':
-      case 'syncAll':
-        result = replaceAllData(payload);
         break;
 
       case 'upsertSettings':
@@ -218,7 +229,6 @@ function handleApiRequest_(e) {
           message: 'BudgetPro backend is running',
           actions: [
             'getBootstrapData',
-            'replaceAllData',
             'upsertSettings',
             'upsertTransaction',
             'deleteTransaction',
@@ -235,6 +245,7 @@ function handleApiRequest_(e) {
 
     return jsonReply_(result, params.callback);
   } catch (err) {
+    console.error('BudgetPro error: action=' + (action || '(none)') + ' - ' + (err && err.message ? err.message : String(err)));
     return jsonReply_(
       { ok: false, message: err && err.message ? err.message : String(err) },
       (e && e.parameter && e.parameter.callback) || ''
@@ -257,41 +268,6 @@ function getBootstrapData() {
     accountBalances: state.accountBalances,
     categories: state.categories
   };
-}
-
-function replaceAllData(payload) {
-  ensureAppSheets_();
-  payload = payload || {};
-
-  const current = readAppState_();
-
-  const settings = Object.prototype.hasOwnProperty.call(payload, 'settings')
-    ? normalizeSettingsObject_(payload.settings)
-    : current.settings;
-
-  const transactions = Array.isArray(payload.transactions)
-    ? payload.transactions.map(normalizeTransactionRow_)
-    : current.transactions;
-
-  const savingsGoals = Array.isArray(payload.savingsGoals)
-    ? payload.savingsGoals.map(normalizeSavingsGoalRow_)
-    : current.savingsGoals;
-
-  const accountBalances = Array.isArray(payload.accountBalances)
-    ? payload.accountBalances.map(normalizeAccountBalanceRow_)
-    : current.accountBalances;
-
-  const categories = Array.isArray(payload.categories)
-    ? normalizeCategoryList_(payload.categories)
-    : current.categories;
-
-  writeSettings_(settings);
-  writeTableFromObjects_(APP.SHEETS.TRANSACTIONS, APP.HEADERS.TRANSACTIONS, transactions);
-  writeTableFromObjects_(APP.SHEETS.SAVINGS_GOALS, APP.HEADERS.SAVINGS_GOALS, savingsGoals);
-  writeTableFromObjects_(APP.SHEETS.ACCOUNT_BALANCES, APP.HEADERS.ACCOUNT_BALANCES, accountBalances);
-  writeCategories_(categories);
-
-  return getBootstrapData();
 }
 
 function upsertSettings(payload) {

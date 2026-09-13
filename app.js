@@ -689,6 +689,38 @@ function showToast(message, type = 'error') {
     }, 4000);
 }
 
+function showUndoToast(message, { onUndo, onCommit, delayMs = 5000 } = {}) {
+    const container = document.getElementById('toast-container');
+    if (!container) {
+        onCommit && onCommit();
+        return;
+    }
+
+    const toast = document.createElement('div');
+    toast.className = 'pointer-events-auto bg-on-surface text-white text-sm font-bold ps-2 pe-4 py-2 rounded-2xl shadow-lg max-w-sm w-full flex items-center justify-between gap-3 transition-opacity duration-300';
+    toast.innerHTML = `
+        <span class="flex-1">${escapeHtmlAttr(message)}</span>
+        <button type="button" class="undo-toast-btn text-primary-container font-black px-3 py-1.5 rounded-xl hover:bg-white/10 active:scale-95 transition-all">בטל</button>
+    `;
+    container.appendChild(toast);
+
+    const dismiss = () => {
+        toast.style.opacity = '0';
+        setTimeout(() => toast.remove(), 300);
+    };
+
+    const timer = setTimeout(() => {
+        dismiss();
+        onCommit && onCommit();
+    }, delayMs);
+
+    toast.querySelector('.undo-toast-btn').addEventListener('click', () => {
+        clearTimeout(timer);
+        dismiss();
+        onUndo && onUndo();
+    });
+}
+
 function startLoading(message) {
     state.loadingCount = (state.loadingCount || 0) + 1;
     state.isLoading = true;
@@ -2858,27 +2890,39 @@ function handleSaveTransaction(data, isEdit) {
 
 function handleDeleteTransaction(id) {
     const tx = state.transactions.find((t) => String(t.id) === String(id));
-    const linkedGoal = tx && tx.goalId ? state.savingsGoals.find((g) => String(g.id) === String(tx.goalId)) : null;
-    if (confirm('האם אתה בטוח שברצונך למחוק תנועה זו?')) {
-        if (tx && tx.type === 'savings_deposit' && tx.isRecurring && linkedGoal) {
-            const cycleKey = getCurrentCycleKey();
-            const skipped = getSkippedCycleSetFromTransaction(tx);
-            skipped.add(cycleKey);
-            const updatedTx = {
-                ...tx,
-                cycleDate: buildSkippedCycleValue(skipped)
-            };
-            state.transactions = state.transactions.map((t) => (String(t.id) === String(tx.id) ? updatedTx : t));
-            saveDataToGAS('updateTransaction', updatedTx);
-            closeModal();
-            render();
-            return;
-        }
-        state.transactions = state.transactions.filter(t => t.id !== id);
-        saveDataToGAS('deleteTransaction', { id });
+    if (!tx) return;
+    const linkedGoal = tx.goalId ? state.savingsGoals.find((g) => String(g.id) === String(tx.goalId)) : null;
+
+    if (tx.type === 'savings_deposit' && tx.isRecurring && linkedGoal) {
+        // Not a real delete - this is a recurring deposit template, so "delete"
+        // means skip this month's occurrence. Keep an explicit confirmation
+        // since there's no undo for it.
+        if (!confirm('זו הפקדה חוזרת ליעד חיסכון. לדלג על ההפקדה של החודש הנוכחי?')) return;
+        const cycleKey = getCurrentCycleKey();
+        const skipped = getSkippedCycleSetFromTransaction(tx);
+        skipped.add(cycleKey);
+        const updatedTx = {
+            ...tx,
+            cycleDate: buildSkippedCycleValue(skipped)
+        };
+        state.transactions = state.transactions.map((t) => (String(t.id) === String(tx.id) ? updatedTx : t));
+        saveDataToGAS('updateTransaction', updatedTx);
         closeModal();
         render();
+        return;
     }
+
+    state.transactions = state.transactions.filter(t => t.id !== id);
+    closeModal();
+    render();
+
+    showUndoToast('התנועה נמחקה', {
+        onUndo: () => {
+            state.transactions.push(tx);
+            render();
+        },
+        onCommit: () => saveDataToGAS('deleteTransaction', { id })
+    });
 }
 
 function renderAddCategoryModal() {
@@ -3229,17 +3273,28 @@ function renderExtraDepositModal(goalId) {
 }
 
 function handleDeleteSavings(id) {
-    if (confirm('האם אתה בטוח שברצונך למחוק יעד זה?')) {
-        const linkedRecurring = getGoalRecurringDepositTransaction(id);
-        if (linkedRecurring) {
-            state.transactions = state.transactions.filter((t) => String(t.id) !== String(linkedRecurring.id));
-            saveDataToGAS('deleteTransaction', { id: linkedRecurring.id });
-        }
-        state.savingsGoals = state.savingsGoals.filter(g => g.id !== id);
-        saveDataToGAS('deleteSavingsGoal', { id });
-        closeModal();
-        render();
+    const goal = state.savingsGoals.find(g => g.id === id);
+    if (!goal) return;
+    const linkedRecurring = getGoalRecurringDepositTransaction(id);
+
+    state.savingsGoals = state.savingsGoals.filter(g => g.id !== id);
+    if (linkedRecurring) {
+        state.transactions = state.transactions.filter((t) => String(t.id) !== String(linkedRecurring.id));
     }
+    closeModal();
+    render();
+
+    showUndoToast('יעד החיסכון נמחק', {
+        onUndo: () => {
+            state.savingsGoals.push(goal);
+            if (linkedRecurring) state.transactions.push(linkedRecurring);
+            render();
+        },
+        onCommit: () => {
+            saveDataToGAS('deleteSavingsGoal', { id });
+            if (linkedRecurring) saveDataToGAS('deleteTransaction', { id: linkedRecurring.id });
+        }
+    });
 }
 
 function renderCategoryModal() {
@@ -3354,12 +3409,20 @@ function handleSaveAccount(data, isEdit) {
 }
 
 function handleDeleteAccount(id) {
-    if (confirm('האם אתה בטוח שברצונך למחוק חשבון זה?')) {
-        state.accountBalances = state.accountBalances.filter(a => a.id !== id);
-        saveDataToGAS('deleteAccountBalance', { id });
-        closeModal();
-        render();
-    }
+    const account = state.accountBalances.find(a => a.id === id);
+    if (!account) return;
+
+    state.accountBalances = state.accountBalances.filter(a => a.id !== id);
+    closeModal();
+    render();
+
+    showUndoToast('החשבון נמחק', {
+        onUndo: () => {
+            state.accountBalances.push(account);
+            render();
+        },
+        onCommit: () => saveDataToGAS('deleteAccountBalance', { id })
+    });
 }
 // --- Event Handlers ---
 function handleLogin() {

@@ -74,6 +74,7 @@ data, and there's nothing to keep paying for.
 | **Undo, not just confirm** | Deleting a transaction, savings goal, or account removes it instantly but holds the actual write for 5 seconds behind an undo toast — nothing reaches the Sheet until the window closes. |
 | **Categories & charts** | Editable categories with Material Symbols icons; category-breakdown donut on the home screen. |
 | **Installable (PWA)** | A web app manifest and a shell-caching service worker mean it can be added to a phone's home screen and opens instantly even on a flaky connection. Live data still always comes from the network — the service worker never caches the Apps Script API. |
+| **Dark mode** | Follows the system theme by default, with a Light/Dark/System toggle in Settings. Built on CSS custom properties, not a `dark:`-class retrofit, so the existing Material 3 color tokens (`bg-primary`, `bg-surface`, …) are theme-aware everywhere they're already used. |
 | **Quick-add via URL** | `#/transactions?quickAdd=1&merchant=…&amount=…&date=…&type=…` opens the transaction modal pre-filled with those values — built for wiring up an iOS Shortcut, a browser bookmarklet, or any automation that can construct a URL, so logging a purchase is a couple of taps instead of opening the app and filling a form from scratch. |
 
 ## Architecture
@@ -258,6 +259,11 @@ Written down instead of hidden:
   Fixing it means extending the server-side settings schema.
 - **Single shared secret per household.** Anyone with the secret has full
   read/write access; there's no per-user permission model.
+- **Dark mode covers structure, not every accent color.** Backgrounds, text,
+  cards, and borders are fully theme-aware, but the small colored badges and
+  pills (expense/income/savings/alert indicators, built on raw Tailwind
+  shades like `bg-rose-50`) don't have bespoke dark variants yet, so they
+  read a bit light against the dark background.
 
 ## Tech stack
 

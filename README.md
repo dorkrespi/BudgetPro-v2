@@ -147,6 +147,13 @@ A few things I'd point a reviewer at:
   next fetch. The flow now connects first, then runs a 2-step intro whose answers
   are written back with `saveDataToGAS('updateSettings', ...)` immediately, so
   they survive the fetch that follows.
+- **The Sheets dashboard duplicates the forecast's matching logic on purpose.**
+  Its menu-triggered refresh (`refreshDashboard`) has no access to the client,
+  so `appliesByFrequencyForMonth_` / `installmentActiveForMonth_` in `code.gs`
+  are a deliberate server-side port of `generateHistoryData`'s rules rather than
+  a shared function — the two are kept in sync by hand, not by construction. It
+  also uses calendar months, not the salary-cycle-aware "current month" the rest
+  of the app uses.
 
 ## Reliability & UX safeguards
 
@@ -271,6 +278,13 @@ Written down instead of hidden:
   pills (expense/income/savings/alert indicators, built on raw Tailwind
   shades like `bg-rose-50`) don't have bespoke dark variants yet, so they
   read a bit light against the dark background.
+- **The Sheets dashboard was never verified against a live Sheet.** Everything
+  else in this repo was checked end-to-end (local server, then the live
+  GitHub Pages site); the dashboard's chart-building code (`refreshDashboard`
+  and friends in `code.gs`) could only be written carefully against the
+  documented Apps Script API, not actually run, since there's no deployed
+  instance to test it against from here. Chart positions in particular are a
+  first pass.
 
 ## Tech stack
 

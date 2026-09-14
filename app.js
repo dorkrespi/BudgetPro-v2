@@ -661,7 +661,7 @@ function renderLoadingOverlay() {
     if (!state.isLoading) return '';
     return `
         <div class="fixed inset-0 z-[100] bg-black/35 backdrop-blur-sm flex items-center justify-center p-6">
-            <div class="bg-white rounded-3xl shadow-2xl px-8 py-7 max-w-xs w-full text-center">
+            <div class="bg-surface rounded-3xl shadow-2xl px-8 py-7 max-w-xs w-full text-center">
                 <div class="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
                 <p class="text-sm font-bold text-on-surface">${state.loadingMessage || 'טוען נתונים...'}</p>
             </div>
@@ -701,7 +701,7 @@ function showUndoToast(message, { onUndo, onCommit, delayMs = 5000 } = {}) {
     toast.className = 'pointer-events-auto bg-on-surface text-white text-sm font-bold ps-2 pe-4 py-2 rounded-2xl shadow-lg max-w-sm w-full flex items-center justify-between gap-3 transition-opacity duration-300';
     toast.innerHTML = `
         <span class="flex-1">${escapeHtmlAttr(message)}</span>
-        <button type="button" class="undo-toast-btn text-primary-container font-black px-3 py-1.5 rounded-xl hover:bg-white/10 active:scale-95 transition-all">בטל</button>
+        <button type="button" class="undo-toast-btn text-primary-container font-black px-3 py-1.5 rounded-xl hover:bg-surface/10 active:scale-95 transition-all">בטל</button>
     `;
     container.appendChild(toast);
 
@@ -840,18 +840,18 @@ function renderHome() {
         <div class="space-y-6">
             <!-- Balance Card -->
             <div class="bg-primary rounded-3xl p-6 text-on-primary shadow-lg shadow-primary/20 relative overflow-hidden mt-4">
-                <div class="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl"></div>
+                <div class="absolute top-0 right-0 w-32 h-32 bg-surface/10 rounded-full -mr-16 -mt-16 blur-2xl"></div>
                 <div class="relative z-10">
                     <p class="text-sm opacity-80 mb-1">יתרה שנותרה לבזבוז החודש</p>
                     <h2 class="text-3xl font-bold mb-1">${formatCurrency(remainingToSpend)}</h2>
                     <p class="text-[10px] opacity-60 mb-6">סה״כ נכסים: ${formatCurrency(totalAssets)}</p>
                     
                     <div class="grid grid-cols-2 gap-4">
-                        <div class="bg-white/10 rounded-2xl p-3 backdrop-blur-sm">
+                        <div class="bg-surface/10 rounded-2xl p-3 backdrop-blur-sm">
                             <p class="text-[10px] opacity-80 uppercase tracking-wider mb-1">הכנסות החודש</p>
                             <p class="text-lg font-bold">${formatCurrency(income)}</p>
                         </div>
-                        <div class="bg-white/10 rounded-2xl p-3 backdrop-blur-sm">
+                        <div class="bg-surface/10 rounded-2xl p-3 backdrop-blur-sm">
                             <p class="text-[10px] opacity-80 uppercase tracking-wider mb-1">הוצאות והפרשות</p>
                             <p class="text-lg font-bold">${formatCurrency(expenses + savings)}</p>
                         </div>
@@ -908,7 +908,7 @@ function renderHome() {
                                 <h4 class="font-bold text-base ${goal.onContainer}">${goal.name}</h4>
                                 <p class="text-sm ${goal.onContainer} opacity-75">${formatCurrency(goal.current)} מתוך ${formatCurrency(goal.target)}</p>
                             </div>
-                            <div class="w-full h-2 bg-white/50 rounded-full overflow-hidden">
+                            <div class="w-full h-2 bg-surface/50 rounded-full overflow-hidden">
                                 <div class="h-full ${goal.color}" style="width: ${progress}%"></div>
                             </div>
                         </div>
@@ -938,7 +938,7 @@ function renderHome() {
                             const displayName = t.name;
                             
                             return `
-                                <div onclick="renderTransactionModal(${JSON.stringify(t).replace(/"/g, '&quot;')})" class="min-w-[150px] bg-white rounded-2xl p-3 border border-surface-variant/30 shadow-sm flex flex-col gap-2 cursor-pointer hover:scale-[1.02] transition-transform">
+                                <div onclick="renderTransactionModal(${JSON.stringify(t).replace(/"/g, '&quot;')})" class="min-w-[150px] bg-surface rounded-2xl p-3 border border-surface-variant/30 shadow-sm flex flex-col gap-2 cursor-pointer hover:scale-[1.02] transition-transform">
                                     <div class="flex items-center justify-between">
                                         <div class="w-8 h-8 rounded-full ${colorClass} flex items-center justify-center">
                                             <span class="material-symbols-outlined text-sm">${TRANSACTION_TYPES[t.type]?.icon || 'receipt_long'}</span>
@@ -961,16 +961,16 @@ function renderHome() {
             </section>
 
             <!-- Charts Section (MAX Style) -->
-            <section class="bg-white rounded-3xl border border-surface-variant/30 shadow-sm overflow-hidden">
+            <section class="bg-surface rounded-3xl border border-surface-variant/30 shadow-sm overflow-hidden">
                 <!-- Tabs -->
                 <div class="flex border-b border-surface-variant/30">
-                    <button onclick="switchHomeChart('trend')" class="flex-1 py-3 flex items-center justify-center gap-2 transition-colors ${state.activeHomeChart === 'trend' ? 'bg-white text-on-surface' : 'bg-surface-variant/20 text-on-surface-variant'}">
+                    <button onclick="switchHomeChart('trend')" class="flex-1 py-3 flex items-center justify-center gap-2 transition-colors ${state.activeHomeChart === 'trend' ? 'bg-surface text-on-surface' : 'bg-surface-variant/20 text-on-surface-variant'}">
                         <span class="material-symbols-outlined text-lg">bar_chart</span>
                         <span class="font-bold text-sm">גרף חודשים</span>
                         <span class="material-symbols-outlined text-base">${state.activeHomeChart === 'trend' ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}</span>
                     </button>
                     <div class="w-[1px] bg-surface-variant/30"></div>
-                    <button onclick="switchHomeChart('category')" class="flex-1 py-3 flex items-center justify-center gap-2 transition-colors ${state.activeHomeChart === 'category' ? 'bg-white text-on-surface' : 'bg-surface-variant/20 text-on-surface-variant'}">
+                    <button onclick="switchHomeChart('category')" class="flex-1 py-3 flex items-center justify-center gap-2 transition-colors ${state.activeHomeChart === 'category' ? 'bg-surface text-on-surface' : 'bg-surface-variant/20 text-on-surface-variant'}">
                         <span class="material-symbols-outlined text-lg">donut_large</span>
                         <span class="font-bold text-sm">גרף קטגוריות</span>
                         <span class="material-symbols-outlined text-base">${state.activeHomeChart === 'category' ? 'keyboard_arrow_up' : 'keyboard_arrow_down'}</span>
@@ -1057,18 +1057,18 @@ function renderTransactions() {
         <div class="space-y-6 pb-10">
             <!-- Remaining to Spend -->
             <div class="bg-primary rounded-3xl p-6 text-on-primary shadow-lg shadow-primary/20 relative overflow-hidden mt-4">
-                <div class="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl"></div>
+                <div class="absolute top-0 right-0 w-32 h-32 bg-surface/10 rounded-full -mr-16 -mt-16 blur-2xl"></div>
                 <div class="relative z-10">
                     <p class="text-sm opacity-80 mb-1">יתרה שנותרה לבזבוז החודש</p>
                     <h2 class="text-3xl font-bold mb-1">${formatCurrency(remaining)}</h2>
                     <p class="text-[10px] opacity-60 mb-6">סה״כ נכסים: ${formatCurrency(totalAssets)}</p>
                     
                     <div class="grid grid-cols-2 gap-4">
-                        <div class="bg-white/10 rounded-2xl p-3 backdrop-blur-sm">
+                        <div class="bg-surface/10 rounded-2xl p-3 backdrop-blur-sm">
                             <p class="text-[10px] opacity-80 uppercase tracking-wider mb-1">הכנסות החודש</p>
                             <p class="text-lg font-bold">${formatCurrency(income)}</p>
                         </div>
-                        <div class="bg-white/10 rounded-2xl p-3 backdrop-blur-sm">
+                        <div class="bg-surface/10 rounded-2xl p-3 backdrop-blur-sm">
                             <p class="text-[10px] opacity-80 uppercase tracking-wider mb-1">הוצאות והפרשות</p>
                             <p class="text-lg font-bold">${formatCurrency(expenses + savings)}</p>
                         </div>
@@ -1114,9 +1114,9 @@ function renderTransactions() {
             <div class="space-y-4">
                 <h4 class="text-lg font-bold px-2">חלוקה לקטגוריות</h4>
                 <div class="flex gap-3 overflow-x-auto no-scrollbar pb-2 px-2">
-                    <button onclick="updateTransactionFilter('category', 'all')" class="px-6 py-3 rounded-2xl font-bold whitespace-nowrap transition-all shadow-sm ${selectedCategory === 'all' ? 'bg-primary text-white' : 'bg-white text-on-surface border border-surface-variant/30'}">הכל</button>
+                    <button onclick="updateTransactionFilter('category', 'all')" class="px-6 py-3 rounded-2xl font-bold whitespace-nowrap transition-all shadow-sm ${selectedCategory === 'all' ? 'bg-primary text-white' : 'bg-surface text-on-surface border border-surface-variant/30'}">הכל</button>
                     ${state.categories.map(cat => `
-                        <button onclick="updateTransactionFilter('category', '${cat.name}')" class="px-6 py-3 rounded-2xl font-bold whitespace-nowrap transition-all shadow-sm ${selectedCategory === cat.name ? 'bg-primary text-white' : 'bg-white text-on-surface border border-surface-variant/30'}">${cat.name}</button>
+                        <button onclick="updateTransactionFilter('category', '${cat.name}')" class="px-6 py-3 rounded-2xl font-bold whitespace-nowrap transition-all shadow-sm ${selectedCategory === cat.name ? 'bg-primary text-white' : 'bg-surface text-on-surface border border-surface-variant/30'}">${cat.name}</button>
                     `).join('')}
                 </div>
             </div>
@@ -1124,7 +1124,7 @@ function renderTransactions() {
             <!-- Filter Navigation -->
             <div class="flex bg-surface-variant/20 p-1.5 rounded-2xl">
                 ${['all', 'fixed', 'variable', 'income', 'expense'].map(f => `
-                    <button onclick="updateTransactionFilter('filter', '${f}')" class="flex-1 py-2.5 rounded-xl text-base font-bold transition-all ${filterType === f ? 'bg-white text-primary shadow-sm' : 'text-on-surface-variant'}">
+                    <button onclick="updateTransactionFilter('filter', '${f}')" class="flex-1 py-2.5 rounded-xl text-base font-bold transition-all ${filterType === f ? 'bg-surface text-primary shadow-sm' : 'text-on-surface-variant'}">
                         ${f === 'all' ? 'הכל' : f === 'fixed' ? 'קבועות' : f === 'variable' ? 'משתנות' : f === 'income' ? 'הכנסות' : 'הוצאות'}
                     </button>
                 `).join('')}
@@ -1137,7 +1137,7 @@ function renderTransactions() {
                     const installmentBadge = getInstallmentBadgeText(t, tDate.getMonth(), tDate.getFullYear());
                     const displayName = t.name;
                     return `
-                    <div onclick="renderTransactionModal(${JSON.stringify(t).replace(/"/g, '&quot;')})" class="bg-white p-5 rounded-3xl flex items-center justify-between shadow-sm border border-surface-variant/10 active:scale-[0.98] transition-all cursor-pointer">
+                    <div onclick="renderTransactionModal(${JSON.stringify(t).replace(/"/g, '&quot;')})" class="bg-surface p-5 rounded-3xl flex items-center justify-between shadow-sm border border-surface-variant/10 active:scale-[0.98] transition-all cursor-pointer">
                         <div class="flex items-center gap-4">
                             <div class="w-12 h-12 rounded-2xl ${TRANSACTION_TYPES[t.type].color.replace('text', 'bg')}/10 flex items-center justify-center ${TRANSACTION_TYPES[t.type].color}">
                                 <span class="material-symbols-outlined text-2xl">${TRANSACTION_TYPES[t.type].icon}</span>
@@ -1221,18 +1221,18 @@ function renderSavings() {
         <div class="space-y-8 pb-10">
             <!-- Summary Section -->
             <section class="bg-primary rounded-3xl p-6 text-on-primary shadow-lg shadow-primary/20 relative overflow-hidden mt-4">
-                <div class="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -mr-16 -mt-16 blur-2xl"></div>
+                <div class="absolute top-0 right-0 w-32 h-32 bg-surface/10 rounded-full -mr-16 -mt-16 blur-2xl"></div>
                 <div class="relative z-10">
                     <p class="text-sm opacity-80 mb-1">סה״כ נחסך</p>
                     <h2 class="text-3xl font-bold mb-1">${formatCurrency(totalCurrent, false)}</h2>
                     <p class="text-[10px] opacity-70 mb-6">${totalTarget > 0 ? Math.round((totalCurrent / totalTarget) * 100) : 0}% מהיעד הכולל</p>
 
                     <div class="grid grid-cols-2 gap-4">
-                        <div class="bg-white/10 rounded-2xl p-3 backdrop-blur-sm">
+                        <div class="bg-surface/10 rounded-2xl p-3 backdrop-blur-sm">
                             <p class="text-[10px] opacity-80 uppercase tracking-wider mb-1">הוקצה החודש</p>
                             <p class="text-lg font-bold">${formatCurrency(monthlySavings, false)}</p>
                         </div>
-                        <div class="bg-white/10 rounded-2xl p-3 backdrop-blur-sm">
+                        <div class="bg-surface/10 rounded-2xl p-3 backdrop-blur-sm">
                             <p class="text-[10px] opacity-80 uppercase tracking-wider mb-1">נותר ליעד</p>
                             <p class="text-lg font-bold">${formatCurrency(totalRemaining, false)}</p>
                         </div>
@@ -1264,7 +1264,7 @@ function renderSavings() {
                         const timeProgress = Math.min(100, Math.max(0, (elapsedMonths / totalPlanMonths) * 100));
 
                         return `
-                            <div onclick="renderSavingsModal(${JSON.stringify(goal).replace(/"/g, '&quot;')})" class="bg-white p-6 rounded-3xl border border-surface-variant/30 shadow-sm space-y-6 group hover:border-primary/20 transition-colors relative overflow-hidden cursor-pointer active:scale-[0.98]">
+                            <div onclick="renderSavingsModal(${JSON.stringify(goal).replace(/"/g, '&quot;')})" class="bg-surface p-6 rounded-3xl border border-surface-variant/30 shadow-sm space-y-6 group hover:border-primary/20 transition-colors relative overflow-hidden cursor-pointer active:scale-[0.98]">
                                 <div class="flex justify-between items-start relative z-10">
                                     <div class="flex items-center gap-4">
                                         <div class="w-14 h-14 rounded-2xl flex items-center justify-center shadow-sm ${goal.container} ${goal.onContainer}">
@@ -1325,7 +1325,7 @@ function renderSavings() {
                     </div>
                     <div class="space-y-3">
                         ${preconfiguredFunds.map(fund => `
-                            <div class="bg-white p-5 rounded-3xl border border-surface-variant/30 shadow-sm">
+                            <div class="bg-surface p-5 rounded-3xl border border-surface-variant/30 shadow-sm">
                                 <div class="flex items-center justify-between">
                                     <div class="flex items-center gap-3">
                                         <div class="w-11 h-11 rounded-2xl bg-primary/10 flex items-center justify-center text-primary">
@@ -1429,8 +1429,8 @@ function renderForecastViewToggle() {
     const activeView = state.activeForecastView;
     return `
         <div class="flex bg-surface-variant/20 rounded-2xl p-1">
-            <button onclick="switchForecastView('forecast')" class="flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors ${activeView === 'forecast' ? 'bg-white text-on-surface shadow-sm' : 'text-on-surface-variant'}">תחזית</button>
-            <button onclick="switchForecastView('history')" class="flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors ${activeView === 'history' ? 'bg-white text-on-surface shadow-sm' : 'text-on-surface-variant'}">היסטוריה</button>
+            <button onclick="switchForecastView('forecast')" class="flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors ${activeView === 'forecast' ? 'bg-surface text-on-surface shadow-sm' : 'text-on-surface-variant'}">תחזית</button>
+            <button onclick="switchForecastView('history')" class="flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors ${activeView === 'history' ? 'bg-surface text-on-surface shadow-sm' : 'text-on-surface-variant'}">היסטוריה</button>
         </div>
     `;
 }
@@ -1466,7 +1466,7 @@ function renderHistoryView() {
                     <span class="text-on-primary-container font-semibold text-xs">נטו ממוצע לחודש (${periodLabel})</span>
                     <div class="flex items-baseline gap-2">
                         <span class="text-3xl font-extrabold text-on-primary-container">${formatCurrency(avgNet, true)}</span>
-                        <span class="font-bold text-xs px-2 py-0.5 rounded-full ${avgNet >= 0 ? 'bg-white/30 text-on-primary-container' : 'bg-error/20 text-error'}">
+                        <span class="font-bold text-xs px-2 py-0.5 rounded-full ${avgNet >= 0 ? 'bg-surface/30 text-on-primary-container' : 'bg-error/20 text-error'}">
                             ${avgNet >= 0 ? 'חיובי' : 'שלילי'}
                         </span>
                     </div>
@@ -1480,7 +1480,7 @@ function renderHistoryView() {
                     <h3 class="text-2xl font-bold">הכנסות מול הוצאות בפועל</h3>
                     <p class="text-on-surface-variant text-sm">מה שבאמת נרשם ב-${historyData.length} החודשים האחרונים.</p>
                 </div>
-                <div class="bg-white p-6 rounded-3xl border border-surface-variant/30 shadow-sm">
+                <div class="bg-surface p-6 rounded-3xl border border-surface-variant/30 shadow-sm">
                     <div class="h-72 w-full">
                         <canvas id="historyChart"></canvas>
                     </div>
@@ -1491,7 +1491,7 @@ function renderHistoryView() {
                 <!-- Category breakdown -->
                 <div class="space-y-4">
                     <h3 class="text-2xl font-bold px-2">הוצאות לפי קטגוריה</h3>
-                    <div class="bg-white p-6 rounded-3xl border border-surface-variant/30 shadow-sm space-y-3">
+                    <div class="bg-surface p-6 rounded-3xl border border-surface-variant/30 shadow-sm space-y-3">
                         ${sortedCategories.map(([cat, amt]) => `
                             <div class="space-y-1">
                                 <div class="flex justify-between items-center text-sm">
@@ -1512,7 +1512,7 @@ function renderHistoryView() {
                 <h3 class="text-2xl font-bold px-2">פירוט חודשי בפועל</h3>
                 <div class="space-y-4">
                     ${historyData.map((item) => `
-                        <div class="bg-white p-6 rounded-3xl border border-surface-variant/30 shadow-sm">
+                        <div class="bg-surface p-6 rounded-3xl border border-surface-variant/30 shadow-sm">
                             <div class="flex items-center justify-between mb-3">
                                 <div class="flex items-center gap-3">
                                     <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
@@ -1568,7 +1568,7 @@ function renderForecast() {
                     <span class="text-on-primary-container font-semibold text-xs">צפי הון בעוד שנה (עו״ש + חסכונות)</span>
                     <div class="flex items-baseline gap-2">
                         <span class="text-3xl font-extrabold text-on-primary-container">${formatCurrency(yearEndTotal, true)}</span>
-                        <span class="font-bold text-xs px-2 py-0.5 rounded-full ${parseFloat(growthPercent) >= 0 ? 'bg-white/30 text-on-primary-container' : 'bg-error/20 text-error'}">
+                        <span class="font-bold text-xs px-2 py-0.5 rounded-full ${parseFloat(growthPercent) >= 0 ? 'bg-surface/30 text-on-primary-container' : 'bg-error/20 text-error'}">
                             ${parseFloat(growthPercent) >= 0 ? '+' : ''}${growthPercent}%
                         </span>
                     </div>
@@ -1581,7 +1581,7 @@ function renderForecast() {
                     <h3 class="text-2xl font-bold">מגמת צמיחה משוערת</h3>
                     <p class="text-on-surface-variant text-sm">תחזית צמיחת הנכסים בעו״ש והחסכונות שלך ל-12 החודשים הקרובים.</p>
                 </div>
-                <div class="bg-white p-6 rounded-3xl border border-surface-variant/30 shadow-sm">
+                <div class="bg-surface p-6 rounded-3xl border border-surface-variant/30 shadow-sm">
                     <div class="h-72 w-full">
                         <canvas id="growthChart"></canvas>
                     </div>
@@ -1593,7 +1593,7 @@ function renderForecast() {
                 <h3 class="text-2xl font-bold px-2">פירוט חודשי צפוי</h3>
                 <div class="space-y-4">
                     ${forecastData.map((item, index) => `
-                        <div class="bg-white p-6 rounded-3xl border border-surface-variant/30 shadow-sm">
+                        <div class="bg-surface p-6 rounded-3xl border border-surface-variant/30 shadow-sm">
                             <div class="flex items-center justify-between mb-4">
                                 <div class="flex items-center gap-3">
                                     <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
@@ -1646,7 +1646,7 @@ function renderForecast() {
                                     </button>
                                     
                                     <!-- Tooltip -->
-                                    <div class="absolute ${state.forecastTooltipOpen === `income-${index}` ? 'block' : 'hidden'} z-20 bottom-full right-0 mb-2 bg-white p-3 rounded-2xl shadow-xl border border-emerald-100 min-w-[160px] text-right animate-in fade-in slide-in-from-bottom-1">
+                                    <div class="absolute ${state.forecastTooltipOpen === `income-${index}` ? 'block' : 'hidden'} z-20 bottom-full right-0 mb-2 bg-surface p-3 rounded-2xl shadow-xl border border-emerald-100 min-w-[160px] text-right animate-in fade-in slide-in-from-bottom-1">
                                         <p class="font-bold text-[10px] text-emerald-700 border-b border-emerald-50 pb-1 mb-2">פירוט הכנסות</p>
                                         <div class="space-y-2">
                                             ${item.incomeItems.length > 0 ? item.incomeItems.map(ii => `
@@ -1668,7 +1668,7 @@ function renderForecast() {
                                     </button>
                                     
                                     <!-- Tooltip -->
-                                    <div class="absolute ${state.forecastTooltipOpen === `expense-${index}` ? 'block' : 'hidden'} z-20 bottom-full right-1/2 translate-x-1/2 mb-2 bg-white p-3 rounded-2xl shadow-xl border border-rose-100 min-w-[160px] text-right animate-in fade-in slide-in-from-bottom-1">
+                                    <div class="absolute ${state.forecastTooltipOpen === `expense-${index}` ? 'block' : 'hidden'} z-20 bottom-full right-1/2 translate-x-1/2 mb-2 bg-surface p-3 rounded-2xl shadow-xl border border-rose-100 min-w-[160px] text-right animate-in fade-in slide-in-from-bottom-1">
                                         <p class="font-bold text-[10px] text-rose-700 border-b border-rose-50 pb-1 mb-2">פירוט הוצאות</p>
                                         <div class="space-y-2">
                                             ${item.expenseItems.length > 0 ? item.expenseItems.map(ei => `
@@ -1690,7 +1690,7 @@ function renderForecast() {
                                     </button>
                                     
                                     <!-- Tooltip -->
-                                    <div class="absolute ${state.forecastTooltipOpen === `saving-${index}` ? 'block' : 'hidden'} z-20 bottom-full left-0 mb-2 bg-white p-3 rounded-2xl shadow-xl border border-blue-100 min-w-[160px] text-right animate-in fade-in slide-in-from-bottom-1">
+                                    <div class="absolute ${state.forecastTooltipOpen === `saving-${index}` ? 'block' : 'hidden'} z-20 bottom-full left-0 mb-2 bg-surface p-3 rounded-2xl shadow-xl border border-blue-100 min-w-[160px] text-right animate-in fade-in slide-in-from-bottom-1">
                                         <p class="font-bold text-[10px] text-blue-700 border-b border-blue-50 pb-1 mb-2">פירוט חיסכון</p>
                                         <div class="space-y-2">
                                             ${item.savingsItems.length > 0 ? item.savingsItems.map(si => `
@@ -1974,6 +1974,26 @@ function renderSettings() {
                 </div>
             </section>
 
+            <!-- Appearance -->
+            <section class="space-y-4">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="material-symbols-outlined text-primary">dark_mode</span>
+                    <h3 class="text-lg font-bold">מראה</h3>
+                </div>
+                <div class="bg-surface-variant/10 rounded-3xl p-6 space-y-6 border border-surface-variant/30">
+                    <div>
+                        <label class="text-sm font-bold text-on-surface-variant mb-4 block">ערכת נושא</label>
+                        <div class="grid grid-cols-3 gap-3">
+                            ${[['light', 'בהיר'], ['dark', 'כהה'], ['system', 'מערכת']].map(([value, label]) => `
+                                <button onclick="setThemePreference('${value}')" class="py-3 rounded-xl font-bold transition-all shadow-sm ${getThemePreference() === value ? 'bg-primary text-white' : 'bg-surface text-on-surface hover:bg-surface-variant/20'}">
+                                    ${label}
+                                </button>
+                            `).join('')}
+                        </div>
+                    </div>
+                </div>
+            </section>
+
             <!-- Monthly Cycle Settings -->
             <section class="space-y-4">
                 <div class="flex items-center gap-2 mb-2">
@@ -1985,7 +2005,7 @@ function renderSettings() {
                         <label class="text-sm font-bold text-on-surface-variant mb-4 block">יום תחילת החודש התקציבי</label>
                         <div class="grid grid-cols-4 gap-3">
                             ${[1, 2, 10, 15].map(day => `
-                                <button onclick="updateCycleStartDay(${day})" class="py-3 rounded-xl font-bold transition-all shadow-sm ${state.settings.cycleStartDay === day ? 'bg-primary text-white' : 'bg-white text-on-surface hover:bg-surface-variant/20'}">
+                                <button onclick="updateCycleStartDay(${day})" class="py-3 rounded-xl font-bold transition-all shadow-sm ${state.settings.cycleStartDay === day ? 'bg-primary text-white' : 'bg-surface text-on-surface hover:bg-surface-variant/20'}">
                                     ${day}
                                 </button>
                             `).join('')}
@@ -2008,7 +2028,7 @@ function renderSettings() {
                 </div>
                 <div class="space-y-3">
                     ${state.accountBalances.map(acc => `
-                        <div onclick="renderAccountModal(${JSON.stringify(acc).replace(/"/g, '&quot;')})" class="bg-white p-4 rounded-2xl flex items-center justify-between shadow-sm border border-surface-variant/30 cursor-pointer active:scale-[0.98] transition-all">
+                        <div onclick="renderAccountModal(${JSON.stringify(acc).replace(/"/g, '&quot;')})" class="bg-surface p-4 rounded-2xl flex items-center justify-between shadow-sm border border-surface-variant/30 cursor-pointer active:scale-[0.98] transition-all">
                             <div class="flex items-center gap-4">
                                 <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
                                     <span class="material-symbols-outlined">${acc.type === 'checking' ? 'account_balance' : 'savings'}</span>
@@ -2038,7 +2058,7 @@ function renderSettings() {
                 </div>
                 <div class="space-y-3">
                     ${fixedIncome.map(item => `
-                        <div onclick="renderTransactionModal(${JSON.stringify(item).replace(/"/g, '&quot;')})" class="bg-white p-4 rounded-2xl flex items-center justify-between shadow-sm border-r-4 border-primary cursor-pointer active:scale-[0.98] transition-all">
+                        <div onclick="renderTransactionModal(${JSON.stringify(item).replace(/"/g, '&quot;')})" class="bg-surface p-4 rounded-2xl flex items-center justify-between shadow-sm border-r-4 border-primary cursor-pointer active:scale-[0.98] transition-all">
                             <div class="flex items-center gap-4">
                                 <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
                                     <span class="material-symbols-outlined">work</span>
@@ -2072,7 +2092,7 @@ function renderSettings() {
                         const installmentBadge = getInstallmentBadgeText(item, cycleStart.getMonth(), cycleStart.getFullYear());
                         const displayName = item.name;
                         return `
-                        <div onclick="renderTransactionModal(${JSON.stringify(item).replace(/"/g, '&quot;')})" class="bg-white p-4 rounded-2xl flex items-center justify-between shadow-sm border border-surface-variant/30 cursor-pointer active:scale-[0.98] transition-all">
+                        <div onclick="renderTransactionModal(${JSON.stringify(item).replace(/"/g, '&quot;')})" class="bg-surface p-4 rounded-2xl flex items-center justify-between shadow-sm border border-surface-variant/30 cursor-pointer active:scale-[0.98] transition-all">
                             <div class="flex items-center gap-4">
                                 <div class="w-10 h-10 rounded-full bg-rose-100 flex items-center justify-center text-rose-600">
                                     <span class="material-symbols-outlined">home</span>
@@ -2110,7 +2130,7 @@ function renderSettings() {
                             <p class="text-sm text-on-surface-variant">אפשר לשלוח הזמנה ישירות בוואטסאפ כדי להתחבר לאותה מערכת נתונים.</p>
                             <div class="space-y-2">
                                 <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">מספר טלפון</label>
-                                <input type="tel" id="partner-phone-input" dir="ltr" value="${state.settings.partnerPhone || ''}" placeholder="05XXXXXXXX" class="w-full h-14 px-4 rounded-2xl bg-white border-2 border-transparent focus:border-primary outline-none transition-all">
+                                <input type="tel" id="partner-phone-input" dir="ltr" value="${state.settings.partnerPhone || ''}" placeholder="05XXXXXXXX" class="w-full h-14 px-4 rounded-2xl bg-surface border-2 border-transparent focus:border-primary outline-none transition-all">
                             </div>
                             <button onclick="sendPartnerInvite()" class="w-full h-12 bg-primary text-white rounded-xl font-bold">
                                 שליחת הזמנה בוואטסאפ
@@ -2137,6 +2157,40 @@ async function updateCycleStartDay(day) {
     state.settings.cycleStartDay = day;
     localStorage.setItem('budget_settings', JSON.stringify(state.settings));
     await saveDataToGAS('updateSettings', state.settings, { showLoading: true });
+}
+
+// --- Theme (light/dark/system) ---
+// A per-device UI preference, not synced to the Sheet - deliberately kept out
+// of state.settings so it never gets pushed through saveDataToGAS.
+function getThemePreference() {
+    try {
+        return localStorage.getItem('budget_theme_preference') || 'system';
+    } catch (e) {
+        return 'system';
+    }
+}
+
+function isDarkModeActive() {
+    const pref = getThemePreference();
+    if (pref === 'dark') return true;
+    if (pref === 'light') return false;
+    return !!(window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+}
+
+function applyThemePreference(pref) {
+    if (pref === 'dark' || pref === 'light') {
+        document.documentElement.setAttribute('data-theme', pref);
+    } else {
+        document.documentElement.removeAttribute('data-theme');
+    }
+}
+
+function setThemePreference(pref) {
+    try {
+        localStorage.setItem('budget_theme_preference', pref);
+    } catch (e) {}
+    applyThemePreference(pref);
+    render();
 }
 
 function switchHomeChart(type) {
@@ -2304,8 +2358,8 @@ function renderLogin() {
                         <ol class="px-4 pb-4 space-y-2 text-sm text-on-surface list-decimal list-inside">
                             <li>פתחו Google Sheet חדש &rarr; <b>Extensions &rarr; Apps Script</b>.</li>
                             <li>מחקו את הקוד הקיים והדביקו במקומו את <b>code.gs</b> (מ-<a href="https://github.com/dorkrespi/BudgetPro-v2/blob/main/code.gs" target="_blank" rel="noopener" class="text-primary underline">הריפו</a>).</li>
-                            <li><b>Project Settings &rarr; Script properties</b> &rarr; הוסיפו <code class="bg-white/60 px-1 rounded">SECRET_KEY</code> עם מחרוזת סודית משלכם.</li>
-                            <li><b>Deploy &rarr; New deployment &rarr; Web app</b>. Execute as: <b>Me</b>, Who has access: <b>Anyone</b>. העתיקו את כתובת ה-<code class="bg-white/60 px-1 rounded">/exec</code>.</li>
+                            <li><b>Project Settings &rarr; Script properties</b> &rarr; הוסיפו <code class="bg-surface/60 px-1 rounded">SECRET_KEY</code> עם מחרוזת סודית משלכם.</li>
+                            <li><b>Deploy &rarr; New deployment &rarr; Web app</b>. Execute as: <b>Me</b>, Who has access: <b>Anyone</b>. העתיקו את כתובת ה-<code class="bg-surface/60 px-1 rounded">/exec</code>.</li>
                             <li>הדביקו את הכתובת ואת הסוד כאן למטה ולחצו התחברות. הסנכרון הראשון ייצור את כל הטאבים ב-Sheet.</li>
                         </ol>
                     ` : ''}
@@ -2315,11 +2369,11 @@ function renderLogin() {
                 <div class="space-y-4">
                     <div class="space-y-2">
                         <label class="text-sm font-medium px-1">כתובת Script</label>
-                        <input type="text" id="scriptUrl" value="${escapeHtmlAttr(prefill.scriptUrl || '')}" placeholder="https://script.google.com/..." class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all">
+                        <input type="text" id="scriptUrl" value="${escapeHtmlAttr(prefill.scriptUrl || '')}" placeholder="https://script.google.com/..." class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-surface outline-none transition-all">
                     </div>
                     <div class="space-y-2">
                         <label class="text-sm font-medium px-1">מפתח סודי</label>
-                        <input type="password" id="secretKey" value="${escapeHtmlAttr(prefill.secretKey || '')}" placeholder="••••••••" class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all">
+                        <input type="password" id="secretKey" value="${escapeHtmlAttr(prefill.secretKey || '')}" placeholder="••••••••" class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-surface outline-none transition-all">
                     </div>
                     <button onclick="handleLogin()" class="w-full h-14 bg-primary text-on-primary rounded-2xl font-bold text-lg shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-[0.98] transition-all mt-4">
                         התחברות
@@ -2404,7 +2458,7 @@ function renderOnboarding() {
                         <h1 class="text-2xl font-black text-on-surface">מחוברים! עוד רגע ומתחילים</h1>
                         <p class="text-on-surface-variant mt-2">היי, מה שמך?</p>
                     </div>
-                    <input type="text" value="${state.onboardingData.name || ''}" oninput="updateOnboardingField('name', this.value)" placeholder="למשל: דניאל" class="w-full h-14 px-4 rounded-2xl bg-white border-2 border-surface-variant/40 focus:border-primary outline-none transition-all">
+                    <input type="text" value="${state.onboardingData.name || ''}" oninput="updateOnboardingField('name', this.value)" placeholder="למשל: דניאל" class="w-full h-14 px-4 rounded-2xl bg-surface border-2 border-surface-variant/40 focus:border-primary outline-none transition-all">
                 </div>
             `;
         }
@@ -2415,11 +2469,11 @@ function renderOnboarding() {
                     <h2 class="text-2xl font-black">איך ננהל את הכסף?</h2>
                     <p class="text-on-surface-variant">זה קובע אם אפשר יהיה להזמין בן/בת זוג לאותו חשבון.</p>
                     <div class="grid grid-cols-1 gap-3">
-                        <button onclick="selectOnboardingProfile('family')" class="p-5 rounded-2xl border-2 text-right transition-all ${state.onboardingData.profileType === 'family' ? 'border-primary bg-primary/10' : 'border-surface-variant/30 bg-white'}">
+                        <button onclick="selectOnboardingProfile('family')" class="p-5 rounded-2xl border-2 text-right transition-all ${state.onboardingData.profileType === 'family' ? 'border-primary bg-primary/10' : 'border-surface-variant/30 bg-surface'}">
                             <p class="font-extrabold">אני כאן כדי לנהל תא משפחתי</p>
                             <p class="text-xs text-on-surface-variant mt-1">יותר דגש על תכנון משותף ויעדים משפחתיים.</p>
                         </button>
-                        <button onclick="selectOnboardingProfile('personal')" class="p-5 rounded-2xl border-2 text-right transition-all ${state.onboardingData.profileType === 'personal' ? 'border-primary bg-primary/10' : 'border-surface-variant/30 bg-white'}">
+                        <button onclick="selectOnboardingProfile('personal')" class="p-5 rounded-2xl border-2 text-right transition-all ${state.onboardingData.profileType === 'personal' ? 'border-primary bg-primary/10' : 'border-surface-variant/30 bg-surface'}">
                             <p class="font-extrabold">אני כאן כדי לנהל את התזרים האישי שלי</p>
                             <p class="text-xs text-on-surface-variant mt-1">יותר פוקוס על הכנסות, הוצאות ועמידה ביעדים.</p>
                         </button>
@@ -2429,11 +2483,11 @@ function renderOnboarding() {
                         <div class="space-y-3 pt-2">
                             <p class="font-bold text-sm">תרצה/י להוסיף בן/בת זוג ולהזמין אותו/ה בהמשך?</p>
                             <div class="grid grid-cols-2 gap-3">
-                                <button onclick="updateOnboardingField('invitePartner','yes'); render();" class="h-12 rounded-xl border-2 font-bold ${state.onboardingData.invitePartner === 'yes' ? 'border-primary bg-primary/10' : 'border-surface-variant/30 bg-white'}">כן</button>
-                                <button onclick="updateOnboardingField('invitePartner','no'); render();" class="h-12 rounded-xl border-2 font-bold ${state.onboardingData.invitePartner === 'no' ? 'border-primary bg-primary/10' : 'border-surface-variant/30 bg-white'}">לא</button>
+                                <button onclick="updateOnboardingField('invitePartner','yes'); render();" class="h-12 rounded-xl border-2 font-bold ${state.onboardingData.invitePartner === 'yes' ? 'border-primary bg-primary/10' : 'border-surface-variant/30 bg-surface'}">כן</button>
+                                <button onclick="updateOnboardingField('invitePartner','no'); render();" class="h-12 rounded-xl border-2 font-bold ${state.onboardingData.invitePartner === 'no' ? 'border-primary bg-primary/10' : 'border-surface-variant/30 bg-surface'}">לא</button>
                             </div>
                             ${state.onboardingData.invitePartner === 'yes' ? `
-                                <input type="tel" dir="ltr" value="${state.onboardingData.partnerPhone || ''}" oninput="updateOnboardingField('partnerPhone', this.value)" placeholder="טלפון בן/בת זוג (למשל 05XXXXXXXX)" class="w-full h-12 px-3 rounded-xl bg-white border border-surface-variant/40 outline-none focus:border-primary">
+                                <input type="tel" dir="ltr" value="${state.onboardingData.partnerPhone || ''}" oninput="updateOnboardingField('partnerPhone', this.value)" placeholder="טלפון בן/בת זוג (למשל 05XXXXXXXX)" class="w-full h-12 px-3 rounded-xl bg-surface border border-surface-variant/40 outline-none focus:border-primary">
                                 <p class="text-xs text-on-surface-variant">אפשר גם לשלוח את ההזמנה מאוחר יותר, מתוך ההגדרות.</p>
                             ` : ''}
                         </div>
@@ -2459,11 +2513,11 @@ function renderOnboarding() {
     return `
         <div class="min-h-screen bg-gradient-to-b from-background to-primary-container/20 px-4 py-6">
             <div class="max-w-2xl mx-auto">
-                <div class="h-2 w-full bg-white/70 rounded-full overflow-hidden mb-6 border border-surface-variant/20">
+                <div class="h-2 w-full bg-surface/70 rounded-full overflow-hidden mb-6 border border-surface-variant/20">
                     <div class="h-full bg-primary transition-all duration-500" style="width: ${progress}%"></div>
                 </div>
 
-                <div class="bg-white/90 backdrop-blur-sm rounded-[2rem] p-6 md:p-8 border border-surface-variant/30 shadow-xl min-h-[60vh] flex flex-col justify-between">
+                <div class="bg-surface/90 backdrop-blur-sm rounded-[2rem] p-6 md:p-8 border border-surface-variant/30 shadow-xl min-h-[60vh] flex flex-col justify-between">
                     <div class="transition-all duration-300 ease-out translate-y-0 opacity-100">
                         ${stepContent}
                     </div>
@@ -2776,24 +2830,24 @@ function renderTransactionModal(transaction = null) {
             <form id="transaction-form" class="space-y-4">
                 <div class="space-y-1">
                     <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">שם התנועה</label>
-                    <input type="text" name="name" value="${transaction?.name || ''}" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all">
+                    <input type="text" name="name" value="${transaction?.name || ''}" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-surface outline-none transition-all">
                 </div>
                 
                 <div class="grid grid-cols-2 gap-4">
                     <div class="space-y-1">
                         <label id="amount-label" class="text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">סכום</label>
-                        <input type="number" step="0.01" name="amount" value="${transaction?.amount || ''}" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all">
+                        <input type="number" step="0.01" name="amount" value="${transaction?.amount || ''}" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-surface outline-none transition-all">
                     </div>
                     <div class="space-y-1">
                         <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">תאריך</label>
-                        <input type="date" name="date" value="${transaction?.date || formatDateLocal(new Date())}" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all">
+                        <input type="date" name="date" value="${transaction?.date || formatDateLocal(new Date())}" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-surface outline-none transition-all">
                     </div>
                 </div>
                 
                 <div class="grid grid-cols-2 gap-4">
                     <div class="space-y-1">
                         <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">סוג תנועה</label>
-                        <select name="type" id="transaction-type" onchange="toggleFrequencyDisplay(this.value)" class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all appearance-none">
+                        <select name="type" id="transaction-type" onchange="toggleFrequencyDisplay(this.value)" class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-surface outline-none transition-all appearance-none">
                             ${Object.entries(TRANSACTION_TYPES).map(([key, val]) => `
                                 <option value="${key}" ${transaction?.type === key ? 'selected' : ''}>${val.label}</option>
                             `).join('')}
@@ -2807,7 +2861,7 @@ function renderTransactionModal(transaction = null) {
                                 הוסף חדש
                             </button>
                         </div>
-                        <select name="category" class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all appearance-none">
+                        <select name="category" class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-surface outline-none transition-all appearance-none">
                             <option value="" ${!transaction?.category ? 'selected' : ''}>בחר קטגוריה</option>
                             ${state.categories.map(cat => `
                                 <option value="${cat.name}" ${transaction?.category === cat.name ? 'selected' : ''}>${cat.name}</option>
@@ -2819,7 +2873,7 @@ function renderTransactionModal(transaction = null) {
                 <div id="frequency-section" class="${(!transaction?.isInstallments && (transaction?.type?.startsWith('fixed') || (transaction?.type === 'variable_expense' && transaction?.isRecurring))) ? '' : 'hidden'} space-y-4">
                     <div class="space-y-1">
                         <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">תדירות</label>
-                        <select name="frequency" class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all appearance-none">
+                        <select name="frequency" class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-surface outline-none transition-all appearance-none">
                             ${Object.entries(FREQUENCIES).map(([key, val]) => `
                                 <option value="${key}" ${transaction?.frequency === key ? 'selected' : ''}>${val.label}</option>
                             `).join('')}
@@ -2850,11 +2904,11 @@ function renderTransactionModal(transaction = null) {
                     <div id="installments-details" class="${transaction?.isInstallments ? '' : 'hidden'} grid grid-cols-2 gap-3">
                         <div class="space-y-1">
                             <label class="text-xs font-bold text-blue-900/80 uppercase tracking-wider px-1">תאריך תשלום ראשון</label>
-                            <input type="date" name="installmentsStartDate" value="${transaction?.installmentsStartDate || transaction?.date || formatDateLocal(new Date())}" class="w-full h-12 px-3 rounded-xl bg-white border border-blue-100 focus:border-primary outline-none transition-all">
+                            <input type="date" name="installmentsStartDate" value="${transaction?.installmentsStartDate || transaction?.date || formatDateLocal(new Date())}" class="w-full h-12 px-3 rounded-xl bg-surface border border-blue-100 focus:border-primary outline-none transition-all">
                         </div>
                         <div class="space-y-1">
                             <label class="text-xs font-bold text-blue-900/80 uppercase tracking-wider px-1">מס׳ תשלומים</label>
-                            <input type="number" name="installmentsTotal" min="2" step="1" value="${transaction?.installmentsTotal || ''}" class="w-full h-12 px-3 rounded-xl bg-white border border-blue-100 focus:border-primary outline-none transition-all" placeholder="למשל 10">
+                            <input type="number" name="installmentsTotal" min="2" step="1" value="${transaction?.installmentsTotal || ''}" class="w-full h-12 px-3 rounded-xl bg-surface border border-blue-100 focus:border-primary outline-none transition-all" placeholder="למשל 10">
                         </div>
                         <p class="col-span-2 text-[11px] text-blue-900/70 leading-relaxed">
                             שימו לב: השדה ״סכום״ למעלה הוא <strong>סכום התשלום החודשי הבודד</strong> (לא מחיר הקנייה הכולל). לדוגמה, קנייה ב-3,600 ₪ ב-12 תשלומים &mdash; הזינו 300.
@@ -3051,7 +3105,7 @@ function renderAddCategoryModal() {
             <form id="category-form" class="space-y-4">
                 <div class="space-y-1">
                     <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">שם הקטגוריה</label>
-                    <input type="text" id="new-category-name" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all" placeholder="למשל: חדר כושר">
+                    <input type="text" id="new-category-name" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-surface outline-none transition-all" placeholder="למשל: חדר כושר">
                 </div>
                 
                 <div class="space-y-1">
@@ -3118,12 +3172,12 @@ function renderSavingsActionModal() {
                 </button>
             </div>
 
-            <button type="button" onclick="handleSavingsActionSelect('new')" class="w-full p-4 rounded-2xl border border-surface-variant/40 bg-white hover:bg-surface-variant/10 transition-all text-right">
+            <button type="button" onclick="handleSavingsActionSelect('new')" class="w-full p-4 rounded-2xl border border-surface-variant/40 bg-surface hover:bg-surface-variant/10 transition-all text-right">
                 <p class="text-lg font-black text-on-surface">יצירת יעד חיסכון חדש</p>
                 <p class="text-sm text-on-surface-variant mt-1">הגדרת יעד, תאריך התחלה והפקדה חודשית</p>
             </button>
 
-            <button type="button" onclick="handleSavingsActionSelect('extra')" class="w-full p-4 rounded-2xl border border-surface-variant/40 ${hasGoals ? 'bg-white hover:bg-surface-variant/10' : 'bg-surface-variant/20 opacity-60 cursor-not-allowed'} transition-all text-right" ${hasGoals ? '' : 'disabled'}>
+            <button type="button" onclick="handleSavingsActionSelect('extra')" class="w-full p-4 rounded-2xl border border-surface-variant/40 ${hasGoals ? 'bg-surface hover:bg-surface-variant/10' : 'bg-surface-variant/20 opacity-60 cursor-not-allowed'} transition-all text-right" ${hasGoals ? '' : 'disabled'}>
                 <p class="text-lg font-black text-on-surface">הפקדה נוספת לחיסכון קיים</p>
                 <p class="text-sm text-on-surface-variant mt-1">${hasGoals ? 'בחירת יעד קיים ועדכון ההפקדה של החודש' : 'אין עדיין יעדי חיסכון קיימים'}</p>
             </button>
@@ -3168,7 +3222,7 @@ function renderSavingsGoalPickerModal() {
 
             <div class="space-y-3 max-h-[52vh] overflow-y-auto no-scrollbar pr-1">
                 ${goals.map((goal) => `
-                    <button type="button" onclick="renderExtraDepositModal('${goal.id}')" class="w-full p-4 rounded-2xl border border-surface-variant/40 bg-white hover:bg-surface-variant/10 transition-all text-right">
+                    <button type="button" onclick="renderExtraDepositModal('${goal.id}')" class="w-full p-4 rounded-2xl border border-surface-variant/40 bg-surface hover:bg-surface-variant/10 transition-all text-right">
                         <div class="flex items-center justify-between gap-3">
                             <span class="material-symbols-outlined ${goal.color.replace('bg-', 'text-')}">savings</span>
                             <div class="min-w-0">
@@ -3205,34 +3259,34 @@ function renderSavingsModal(goal = null) {
             <form id="savings-form" class="space-y-4">
                 <div class="space-y-1">
                     <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">שם היעד</label>
-                    <input type="text" name="name" value="${goal?.name || ''}" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all">
+                    <input type="text" name="name" value="${goal?.name || ''}" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-surface outline-none transition-all">
                 </div>
                 
                 <div class="grid grid-cols-2 gap-4">
                     <div class="space-y-1">
                         <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">יעד סופי</label>
-                        <input type="number" name="target" value="${goal?.target || ''}" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all">
+                        <input type="number" name="target" value="${goal?.target || ''}" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-surface outline-none transition-all">
                     </div>
                     <div class="space-y-1">
                         <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">סכום נוכחי</label>
-                        <input type="number" name="current" value="${goal?.current || '0'}" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all">
+                        <input type="number" name="current" value="${goal?.current || '0'}" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-surface outline-none transition-all">
                     </div>
                 </div>
                 
                 <div class="grid grid-cols-2 gap-4">
                     <div class="space-y-1">
                         <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">תאריך התחלה</label>
-                        <input type="date" name="startDate" value="${goal?.startDate || formatDateLocal(new Date())}" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all">
+                        <input type="date" name="startDate" value="${goal?.startDate || formatDateLocal(new Date())}" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-surface outline-none transition-all">
                     </div>
                     <div class="space-y-1">
                         <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">הפקדה חודשית</label>
-                        <input type="number" name="monthlyAmount" value="${goal?.monthlyAmount || ''}" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all">
+                        <input type="number" name="monthlyAmount" value="${goal?.monthlyAmount || ''}" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-surface outline-none transition-all">
                     </div>
                 </div>
 
                 <div class="space-y-1">
                         <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">יום הפקדה</label>
-                        <input type="number" name="depositDay" value="${goal?.depositDay || '10'}" min="1" max="31" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all">
+                        <input type="number" name="depositDay" value="${goal?.depositDay || '10'}" min="1" max="31" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-surface outline-none transition-all">
                 </div>
 
                 <div class="space-y-1">
@@ -3335,11 +3389,11 @@ function renderExtraDepositModal(goalId) {
                 <div class="grid grid-cols-2 gap-4">
                     <div class="space-y-1">
                         <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">סכום הפקדה</label>
-                        <input type="number" step="0.01" name="amount" min="0.01" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all">
+                        <input type="number" step="0.01" name="amount" min="0.01" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-surface outline-none transition-all">
                     </div>
                     <div class="space-y-1">
                         <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">תאריך</label>
-                        <input type="date" name="date" value="${formatDateLocal(new Date())}" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all">
+                        <input type="date" name="date" value="${formatDateLocal(new Date())}" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-surface outline-none transition-all">
                     </div>
                 </div>
 
@@ -3423,7 +3477,7 @@ function renderCategoryModal() {
             <form id="category-form" class="space-y-4">
                 <div class="space-y-1">
                     <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">שם הקטגוריה</label>
-                    <input type="text" name="name" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all">
+                    <input type="text" name="name" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-surface outline-none transition-all">
                 </div>
                 
                 <button type="submit" class="w-full h-14 bg-primary text-on-primary rounded-2xl font-bold text-lg shadow-lg shadow-primary/20 active:scale-95 transition-all">
@@ -3462,17 +3516,17 @@ function renderAccountModal(account = null) {
             <form id="account-form" class="space-y-4">
                 <div class="space-y-1">
                     <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">שם החשבון</label>
-                    <input type="text" name="name" value="${account?.name || ''}" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all">
+                    <input type="text" name="name" value="${account?.name || ''}" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-surface outline-none transition-all">
                 </div>
                 
                 <div class="grid grid-cols-2 gap-4">
                     <div class="space-y-1">
                         <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">סכום נוכחי</label>
-                        <input type="number" step="0.01" name="amount" value="${account?.amount || ''}" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all">
+                        <input type="number" step="0.01" name="amount" value="${account?.amount || ''}" required class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-surface outline-none transition-all">
                     </div>
                     <div class="space-y-1">
                         <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider px-1">סוג חשבון</label>
-                        <select name="type" class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-white outline-none transition-all appearance-none">
+                        <select name="type" class="w-full h-14 px-4 rounded-2xl bg-surface-variant/30 border-2 border-transparent focus:border-primary focus:bg-surface outline-none transition-all appearance-none">
                             <option value="checking" ${account?.type === 'checking' ? 'selected' : ''}>עו״ש</option>
                             <option value="savings" ${account?.type === 'savings' ? 'selected' : ''}>חיסכון / השקעה</option>
                         </select>
@@ -3559,7 +3613,16 @@ function attachEventListeners() {
 
 function initCharts() {
     const basePath = state.currentPath.split('?')[0];
-    
+
+    // Chart.js defaults to a fixed gray for axis/legend text and grid lines,
+    // which reads fine on a light background but too faint on a dark one.
+    // Charts are recreated on every render, so re-applying this each time
+    // keeps them in sync with the active theme.
+    if (typeof Chart !== 'undefined') {
+        Chart.defaults.color = isDarkModeActive() ? '#CAC4D0' : '#49454F';
+        Chart.defaults.borderColor = isDarkModeActive() ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)';
+    }
+
     if (basePath === '/' || basePath === '') {
         initHomeCharts();
     } else if (basePath === '/forecast') {

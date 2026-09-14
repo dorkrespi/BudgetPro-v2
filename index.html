@@ -14,6 +14,108 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="default">
     <meta name="apple-mobile-web-app-title" content="BudgetPro">
 
+    <!-- Dark mode: apply the saved/system theme before first paint, so
+         there's no flash of the wrong theme. Kept tiny and synchronous. -->
+    <script>
+        (function () {
+            try {
+                var saved = localStorage.getItem('budget_theme_preference');
+                if (saved === 'dark' || saved === 'light') {
+                    document.documentElement.setAttribute('data-theme', saved);
+                }
+                // saved === 'system' (or nothing saved) - no attribute, CSS
+                // media query below decides.
+            } catch (e) {}
+        })();
+    </script>
+
+    <!-- Color tokens (Material 3 palette). Defined as CSS variables so both
+         light and dark values exist for every semantic color name used
+         throughout the app (bg-primary, bg-surface, text-on-surface, ...).
+         RGB-channel format (not hex) so Tailwind's opacity modifiers
+         (bg-primary/10 etc.) keep working. -->
+    <style>
+        :root {
+            --color-primary: 103 80 164;
+            --color-on-primary: 255 255 255;
+            --color-primary-container: 234 221 255;
+            --color-on-primary-container: 33 0 93;
+            --color-secondary: 98 91 113;
+            --color-on-secondary: 255 255 255;
+            --color-secondary-container: 232 222 248;
+            --color-on-secondary-container: 29 25 43;
+            --color-tertiary: 125 82 96;
+            --color-on-tertiary: 255 255 255;
+            --color-tertiary-container: 255 216 228;
+            --color-on-tertiary-container: 49 17 29;
+            --color-error: 179 38 30;
+            --color-on-error: 255 255 255;
+            --color-error-container: 249 222 220;
+            --color-on-error-container: 65 14 11;
+            --color-background: 255 251 254;
+            --color-on-background: 28 27 31;
+            --color-surface: 255 251 254;
+            --color-on-surface: 28 27 31;
+            --color-surface-variant: 231 224 236;
+            --color-on-surface-variant: 73 69 79;
+            --color-outline: 121 116 126;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root:not([data-theme="light"]) {
+                --color-primary: 208 188 255;
+                --color-on-primary: 56 30 114;
+                --color-primary-container: 79 55 139;
+                --color-on-primary-container: 234 221 255;
+                --color-secondary: 204 194 220;
+                --color-on-secondary: 51 45 65;
+                --color-secondary-container: 74 68 88;
+                --color-on-secondary-container: 232 222 248;
+                --color-tertiary: 239 184 200;
+                --color-on-tertiary: 73 37 50;
+                --color-tertiary-container: 99 59 72;
+                --color-on-tertiary-container: 255 216 228;
+                --color-error: 242 184 181;
+                --color-on-error: 96 20 16;
+                --color-error-container: 140 29 24;
+                --color-on-error-container: 249 222 220;
+                --color-background: 28 27 31;
+                --color-on-background: 230 225 229;
+                --color-surface: 28 27 31;
+                --color-on-surface: 230 225 229;
+                --color-surface-variant: 73 69 79;
+                --color-on-surface-variant: 202 196 208;
+                --color-outline: 147 143 153;
+            }
+        }
+
+        :root[data-theme="dark"] {
+            --color-primary: 208 188 255;
+            --color-on-primary: 56 30 114;
+            --color-primary-container: 79 55 139;
+            --color-on-primary-container: 234 221 255;
+            --color-secondary: 204 194 220;
+            --color-on-secondary: 51 45 65;
+            --color-secondary-container: 74 68 88;
+            --color-on-secondary-container: 232 222 248;
+            --color-tertiary: 239 184 200;
+            --color-on-tertiary: 73 37 50;
+            --color-tertiary-container: 99 59 72;
+            --color-on-tertiary-container: 255 216 228;
+            --color-error: 242 184 181;
+            --color-on-error: 96 20 16;
+            --color-error-container: 140 29 24;
+            --color-on-error-container: 249 222 220;
+            --color-background: 28 27 31;
+            --color-on-background: 230 225 229;
+            --color-surface: 28 27 31;
+            --color-on-surface: 230 225 229;
+            --color-surface-variant: 73 69 79;
+            --color-on-surface-variant: 202 196 208;
+            --color-outline: 147 143 153;
+        }
+    </style>
+
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -21,29 +123,29 @@
             theme: {
                 extend: {
                     colors: {
-                        primary: '#6750A4',
-                        'on-primary': '#FFFFFF',
-                        'primary-container': '#EADDFF',
-                        'on-primary-container': '#21005D',
-                        secondary: '#625B71',
-                        'on-secondary': '#FFFFFF',
-                        'secondary-container': '#E8DEF8',
-                        'on-secondary-container': '#1D192B',
-                        tertiary: '#7D5260',
-                        'on-tertiary': '#FFFFFF',
-                        'tertiary-container': '#FFD8E4',
-                        'on-tertiary-container': '#31111D',
-                        error: '#B3261E',
-                        'on-error': '#FFFFFF',
-                        'error-container': '#F9DEDC',
-                        'on-error-container': '#410E0B',
-                        background: '#FFFBFE',
-                        'on-background': '#1C1B1F',
-                        surface: '#FFFBFE',
-                        'on-surface': '#1C1B1F',
-                        'surface-variant': '#E7E0EC',
-                        'on-surface-variant': '#49454F',
-                        outline: '#79747E',
+                        primary: 'rgb(var(--color-primary) / <alpha-value>)',
+                        'on-primary': 'rgb(var(--color-on-primary) / <alpha-value>)',
+                        'primary-container': 'rgb(var(--color-primary-container) / <alpha-value>)',
+                        'on-primary-container': 'rgb(var(--color-on-primary-container) / <alpha-value>)',
+                        secondary: 'rgb(var(--color-secondary) / <alpha-value>)',
+                        'on-secondary': 'rgb(var(--color-on-secondary) / <alpha-value>)',
+                        'secondary-container': 'rgb(var(--color-secondary-container) / <alpha-value>)',
+                        'on-secondary-container': 'rgb(var(--color-on-secondary-container) / <alpha-value>)',
+                        tertiary: 'rgb(var(--color-tertiary) / <alpha-value>)',
+                        'on-tertiary': 'rgb(var(--color-on-tertiary) / <alpha-value>)',
+                        'tertiary-container': 'rgb(var(--color-tertiary-container) / <alpha-value>)',
+                        'on-tertiary-container': 'rgb(var(--color-on-tertiary-container) / <alpha-value>)',
+                        error: 'rgb(var(--color-error) / <alpha-value>)',
+                        'on-error': 'rgb(var(--color-on-error) / <alpha-value>)',
+                        'error-container': 'rgb(var(--color-error-container) / <alpha-value>)',
+                        'on-error-container': 'rgb(var(--color-on-error-container) / <alpha-value>)',
+                        background: 'rgb(var(--color-background) / <alpha-value>)',
+                        'on-background': 'rgb(var(--color-on-background) / <alpha-value>)',
+                        surface: 'rgb(var(--color-surface) / <alpha-value>)',
+                        'on-surface': 'rgb(var(--color-on-surface) / <alpha-value>)',
+                        'surface-variant': 'rgb(var(--color-surface-variant) / <alpha-value>)',
+                        'on-surface-variant': 'rgb(var(--color-on-surface-variant) / <alpha-value>)',
+                        outline: 'rgb(var(--color-outline) / <alpha-value>)',
                     }
                 }
             }

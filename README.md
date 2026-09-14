@@ -67,6 +67,7 @@ data, and there's nothing to keep paying for.
 | **Savings goals** | Target, current balance, monthly deposit, start date and duration, icon and colour. A recurring deposit transaction is kept in sync with the goal automatically; individual months can be skipped. |
 | **Accounts** | Checking / savings / investment balances as the forecast's starting points, tracked separately so the projection distinguishes liquid cash from savings. |
 | **12-month forecast** | Per-month projected closing balance for checking and savings, with an interactive chart and a month-by-month breakdown of every contributing line. |
+| **History view** | A toggle on the Forecast page flips from projection to reconstruction: actual income vs. expense for the last 6 months, a category breakdown for the period, and a monthly list — built from the same recurring-transaction matching rules as the forecast, run backward instead of forward. |
 | **Salary-cycle budgeting** | The "current month" everywhere in the app runs from your payday to the next. |
 | **Connect + light onboarding** | First launch asks you to connect a Google Sheet, with an in-app checklist for setting one up. A short 2-step intro (name, household mode) follows *after* the connection succeeds, so nothing typed is ever silently lost. |
 | **Partner invites** | Generate a one-time, expiring invite link (WhatsApp deep-link) so a partner connects to the same backend without ever seeing the shared secret. |

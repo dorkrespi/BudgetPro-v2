@@ -75,6 +75,7 @@ const state = {
         { name: 'אחר', icon: 'category' }
     ],
     activeHomeChart: 'category', // 'category' or 'trend'
+    activeForecastView: 'forecast', // 'forecast' or 'history'
     currentPath: window.location.hash.replace('#', '') || '/',
     isLoading: false,
     loadingCount: 0,
@@ -1346,7 +1347,207 @@ function renderSavings() {
     `;
 }
 
+function generateHistoryData(monthsBack = 6) {
+    // Complementary to generateForecastData: instead of projecting forward
+    // from today, this reconstructs what actually applied in each of the
+    // last `monthsBack` months, using the same recurring/installment
+    // matching rules. Unlike the forecast, this is a reconstruction of real
+    // recorded data, not a projection - but it still trusts whatever amount
+    // is stored on a recurring/variable-price transaction today, so a bill
+    // that changed price over time won't show its old amounts exactly.
+    const data = [];
+    const now = new Date();
+
+    function appliesByFrequencyPast_(transaction, monthIndex, year) {
+        const freq = String(transaction.frequency || 'monthly');
+        const tDate = new Date(transaction.date || `${year}-${String(monthIndex + 1).padStart(2, '0')}-01`);
+        const monthsDiff = (year - tDate.getFullYear()) * 12 + (monthIndex - tDate.getMonth());
+        if (monthsDiff < 0) return false;
+        if (freq === 'monthly') return true;
+        if (freq === 'bi-monthly') return monthsDiff % 2 === 0;
+        if (freq === 'quarterly') return monthsDiff % 3 === 0;
+        if (freq === 'semi-annually') return monthsDiff % 6 === 0;
+        if (freq === 'annually' || freq === 'annual') return monthsDiff % 12 === 0;
+        return true;
+    }
+
+    function transactionAppliesPast_(transaction, monthIndex, year) {
+        const installmentStatus = getInstallmentStatus(transaction, monthIndex, year);
+        if (installmentStatus.enabled) return installmentStatus.active;
+        if (transaction.isRecurring) {
+            return appliesByFrequencyPast_(transaction, monthIndex, year);
+        }
+        const tDate = new Date(transaction.date);
+        return tDate.getMonth() === monthIndex && tDate.getFullYear() === year;
+    }
+
+    for (let i = monthsBack - 1; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const monthIndex = d.getMonth();
+        const year = d.getFullYear();
+
+        let income = 0;
+        let expense = 0;
+        const categoryTotals = {};
+
+        state.transactions.forEach((t) => {
+            if (!t) return;
+            const amt = Number(t.amount) || 0;
+
+            if (t.type === 'fixed_income') {
+                if (appliesByFrequencyPast_(t, monthIndex, year)) income += amt;
+                return;
+            }
+            if (t.type === 'variable_income') {
+                const tDate = new Date(t.date);
+                if (tDate.getMonth() === monthIndex && tDate.getFullYear() === year) income += amt;
+                return;
+            }
+            if (t.type === 'fixed_expense' || t.type === 'variable_expense') {
+                if (transactionAppliesPast_(t, monthIndex, year)) {
+                    expense += amt;
+                    const cat = t.category || 'אחר';
+                    categoryTotals[cat] = (categoryTotals[cat] || 0) + amt;
+                }
+            }
+        });
+
+        data.push({
+            month: d.toLocaleString('he-IL', { month: 'short' }),
+            fullMonth: d.toLocaleString('he-IL', { month: 'long', year: 'numeric' }),
+            income,
+            expense,
+            net: income - expense,
+            categoryTotals
+        });
+    }
+
+    return data;
+}
+
+function renderForecastViewToggle() {
+    const activeView = state.activeForecastView;
+    return `
+        <div class="flex bg-surface-variant/20 rounded-2xl p-1">
+            <button onclick="switchForecastView('forecast')" class="flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors ${activeView === 'forecast' ? 'bg-white text-on-surface shadow-sm' : 'text-on-surface-variant'}">תחזית</button>
+            <button onclick="switchForecastView('history')" class="flex-1 py-2.5 rounded-xl text-sm font-bold transition-colors ${activeView === 'history' ? 'bg-white text-on-surface shadow-sm' : 'text-on-surface-variant'}">היסטוריה</button>
+        </div>
+    `;
+}
+
+function renderHistoryView() {
+    const historyData = generateHistoryData(6);
+    const totalIncome = historyData.reduce((s, m) => s + m.income, 0);
+    const totalExpense = historyData.reduce((s, m) => s + m.expense, 0);
+    const avgNet = historyData.length ? (totalIncome - totalExpense) / historyData.length : 0;
+    const periodLabel = historyData.length ? `${historyData[0].fullMonth} — ${historyData[historyData.length - 1].fullMonth}` : '';
+
+    const categoryTotals = {};
+    historyData.forEach((m) => {
+        Object.entries(m.categoryTotals).forEach(([cat, amt]) => {
+            categoryTotals[cat] = (categoryTotals[cat] || 0) + amt;
+        });
+    });
+    const sortedCategories = Object.entries(categoryTotals).sort((a, b) => b[1] - a[1]);
+    const maxCategoryAmount = sortedCategories.length ? sortedCategories[0][1] : 0;
+
+    return `
+        <div class="space-y-8 pb-10">
+            <div class="flex flex-col gap-6">
+                <div>
+                    <h1 class="text-3xl font-extrabold text-on-surface tracking-tight mb-2">תחזית</h1>
+                    <p class="text-on-surface-variant text-sm">מבט קדימה על סמך מה שידוע, ואחורה על סמך מה שבאמת נרשם.</p>
+                </div>
+
+                ${renderForecastViewToggle()}
+
+                <!-- Summary Card -->
+                <div class="bg-primary-container p-6 rounded-3xl shadow-sm flex flex-col gap-1">
+                    <span class="text-on-primary-container font-semibold text-xs">נטו ממוצע לחודש (${periodLabel})</span>
+                    <div class="flex items-baseline gap-2">
+                        <span class="text-3xl font-extrabold text-on-primary-container">${formatCurrency(avgNet, true)}</span>
+                        <span class="font-bold text-xs px-2 py-0.5 rounded-full ${avgNet >= 0 ? 'bg-white/30 text-on-primary-container' : 'bg-error/20 text-error'}">
+                            ${avgNet >= 0 ? 'חיובי' : 'שלילי'}
+                        </span>
+                    </div>
+                    <p class="text-on-primary-container/70 text-xs mt-1">מבוסס על התנועות הרשומות אצלך, לא על דוח בנק.</p>
+                </div>
+            </div>
+
+            <!-- History Chart -->
+            <div class="space-y-4">
+                <div class="px-2">
+                    <h3 class="text-2xl font-bold">הכנסות מול הוצאות בפועל</h3>
+                    <p class="text-on-surface-variant text-sm">מה שבאמת נרשם ב-${historyData.length} החודשים האחרונים.</p>
+                </div>
+                <div class="bg-white p-6 rounded-3xl border border-surface-variant/30 shadow-sm">
+                    <div class="h-72 w-full">
+                        <canvas id="historyChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            ${sortedCategories.length > 0 ? `
+                <!-- Category breakdown -->
+                <div class="space-y-4">
+                    <h3 class="text-2xl font-bold px-2">הוצאות לפי קטגוריה</h3>
+                    <div class="bg-white p-6 rounded-3xl border border-surface-variant/30 shadow-sm space-y-3">
+                        ${sortedCategories.map(([cat, amt]) => `
+                            <div class="space-y-1">
+                                <div class="flex justify-between items-center text-sm">
+                                    <span class="font-bold text-rose-600">${formatCurrency(amt)}</span>
+                                    <span class="font-bold">${cat}</span>
+                                </div>
+                                <div class="h-2 w-full bg-surface-variant/20 rounded-full overflow-hidden">
+                                    <div class="h-full bg-rose-400 rounded-full" style="width: ${maxCategoryAmount > 0 ? (amt / maxCategoryAmount * 100) : 0}%"></div>
+                                </div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            ` : ''}
+
+            <!-- Monthly List -->
+            <div class="space-y-6">
+                <h3 class="text-2xl font-bold px-2">פירוט חודשי בפועל</h3>
+                <div class="space-y-4">
+                    ${historyData.map((item) => `
+                        <div class="bg-white p-6 rounded-3xl border border-surface-variant/30 shadow-sm">
+                            <div class="flex items-center justify-between mb-3">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary">
+                                        <span class="material-symbols-outlined">calendar_today</span>
+                                    </div>
+                                    <h4 class="text-lg font-extrabold">${item.fullMonth}</h4>
+                                </div>
+                                <div class="text-left">
+                                    <p class="text-sm font-bold text-primary/70 uppercase tracking-wider">נטו</p>
+                                    <p class="text-xl font-black ${item.net >= 0 ? 'text-emerald-600' : 'text-rose-600'}">${item.net >= 0 ? '+' : ''}${formatCurrency(item.net)}</p>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-2 pt-3 border-t border-surface-variant/10">
+                                <div>
+                                    <p class="text-sm font-bold text-on-surface-variant opacity-80 uppercase">הכנסות</p>
+                                    <p class="text-lg font-black text-emerald-600">${formatCurrency(item.income)}</p>
+                                </div>
+                                <div>
+                                    <p class="text-sm font-bold text-on-surface-variant opacity-80 uppercase">הוצאות</p>
+                                    <p class="text-lg font-black text-rose-600">${formatCurrency(-item.expense)}</p>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        </div>
+    `;
+}
+
 function renderForecast() {
+    if (state.activeForecastView === 'history') {
+        return renderHistoryView();
+    }
+
     const totalBalance = state.accountBalances.reduce((sum, acc) => sum + acc.amount, 0);
     const forecastData = generateForecastData();
     const yearEndTotal = forecastData[11].total;
@@ -1359,7 +1560,9 @@ function renderForecast() {
                     <h1 class="text-3xl font-extrabold text-on-surface tracking-tight mb-2">תחזית</h1>
                     <p class="text-on-surface-variant text-sm">ניתוח מעמיק של מסלול הצמיחה הפיננסי שלך ל-12 החודשים הקרובים.</p>
                 </div>
-                
+
+                ${renderForecastViewToggle()}
+
                 <!-- Summary Card -->
                 <div class="bg-primary-container p-6 rounded-3xl shadow-sm flex flex-col gap-1">
                     <span class="text-on-primary-container font-semibold text-xs">צפי הון בעוד שנה (עו״ש + חסכונות)</span>
@@ -1938,6 +2141,11 @@ async function updateCycleStartDay(day) {
 
 function switchHomeChart(type) {
     state.activeHomeChart = type;
+    render();
+}
+
+function switchForecastView(view) {
+    state.activeForecastView = view;
     render();
 }
 
@@ -3355,7 +3563,11 @@ function initCharts() {
     if (basePath === '/' || basePath === '') {
         initHomeCharts();
     } else if (basePath === '/forecast') {
-        initForecastChart();
+        if (state.activeForecastView === 'history') {
+            initHistoryChart();
+        } else {
+            initForecastChart();
+        }
     }
 }
 
@@ -3547,6 +3759,75 @@ function initForecastChart() {
                 },
                 y: {
                     stacked: true,
+                    beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return formatCurrency(value, false);
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function initHistoryChart() {
+    const ctx = document.getElementById('historyChart');
+    if (!ctx) return;
+
+    const historyData = generateHistoryData(6);
+
+    new Chart(ctx, {
+        type: 'bar',
+        data: {
+            labels: historyData.map(d => d.month),
+            datasets: [
+                {
+                    label: 'הכנסות',
+                    data: historyData.map(d => d.income),
+                    backgroundColor: '#66BB6A', // green
+                    borderRadius: 4
+                },
+                {
+                    label: 'הוצאות',
+                    data: historyData.map(d => d.expense),
+                    backgroundColor: '#EF5350', // red
+                    borderRadius: 4
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: {
+                    position: 'top',
+                    rtl: true,
+                    labels: {
+                        font: { family: 'Assistant', weight: 'bold' }
+                    }
+                },
+                tooltip: {
+                    rtl: true,
+                    callbacks: {
+                        label: function(context) {
+                            let label = context.dataset.label || '';
+                            if (label) {
+                                label += ': ';
+                            }
+                            if (context.parsed.y !== null) {
+                                label += formatCurrency(context.parsed.y);
+                            }
+                            return label;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { display: false }
+                },
+                y: {
                     beginAtZero: true,
                     ticks: {
                         callback: function(value) {

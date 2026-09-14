@@ -71,6 +71,7 @@ data, and there's nothing to keep paying for.
 | **Salary-cycle budgeting** | The "current month" everywhere in the app runs from your payday to the next. |
 | **Connect + light onboarding** | First launch asks you to connect a Google Sheet, with an in-app checklist for setting one up. A short 2-step intro (name, household mode) follows *after* the connection succeeds, so nothing typed is ever silently lost. |
 | **Partner invites** | Generate a one-time, expiring invite link (WhatsApp deep-link) so a partner connects to the same backend without ever seeing the shared secret. |
+| **Native Sheets dashboard** | A "Dashboard" tab in the Google Sheet itself — KPI row, a 6-month income/expense trend chart, a category pie chart, savings-goal progress — refreshed from a **BudgetPro → רענן דשבורד** menu inside Sheets. Works standalone; doesn't need the app open. |
 | **Undo, not just confirm** | Deleting a transaction, savings goal, or account removes it instantly but holds the actual write for 5 seconds behind an undo toast — nothing reaches the Sheet until the window closes. |
 | **Categories & charts** | Editable categories with Material Symbols icons; category-breakdown donut on the home screen. |
 | **Installable (PWA)** | A web app manifest and a shell-caching service worker mean it can be added to a phone's home screen and opens instantly even on a flaky connection. Live data still always comes from the network — the service worker never caches the Apps Script API. |
@@ -215,6 +216,12 @@ and seeds default categories.
 
 Nothing sensitive lives in this repo — `scriptUrl` and `secretKey` are entered in
 the app and stored only in your browser's `localStorage`.
+
+**Dashboard menu:** after pasting `code.gs`, switch back to the Sheet tab and
+reload it once — a **BudgetPro** menu with **רענן דשבורד** appears next to
+Extensions/Help (Apps Script's `onOpen` runs automatically for the sheet's
+owner). No redeploy needed for the menu itself, only for `doGet`/`doPost`
+changes.
 
 ## Local development
 

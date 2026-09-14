@@ -925,3 +925,250 @@ function clampInteger_(value, min, max, fallback) {
   const rounded = Math.round(n);
   return Math.max(min, Math.min(max, rounded));
 }
+
+// ============================================================
+// Dashboard - a native Sheets report (KPIs, trend chart, category
+// pie chart, savings-goal progress), refreshed from a custom menu
+// so it works standalone in Sheets without going through the app.
+//
+// The monthly matching rules (recurring cadence, installments) are
+// ported from app.js's generateHistoryData/generateForecastData - same
+// logic, running server-side here so the menu refresh doesn't depend
+// on the web app at all. If those rules ever change in app.js, update
+// appliesByFrequencyForMonth_/transactionAppliesForMonth_ here to match.
+// ============================================================
+
+const DASHBOARD_SHEET_NAME = 'Dashboard';
+const DASHBOARD_MONTHS_BACK = 6;
+
+function onOpen() {
+  SpreadsheetApp.getUi()
+    .createMenu('BudgetPro')
+    .addItem('רענן דשבורד', 'refreshDashboard')
+    .addToUi();
+}
+
+function refreshDashboard() {
+  const ui = SpreadsheetApp.getUi();
+  try {
+    const ss = getSpreadsheet_();
+    const monthly = computeMonthlyHistory_(DASHBOARD_MONTHS_BACK);
+    const categoryTotals = computeCategoryTotals_(monthly);
+    const goals = readObjects_(APP.SHEETS.SAVINGS_GOALS, APP.HEADERS.SAVINGS_GOALS).map(normalizeSavingsGoalRow_);
+    const accounts = readObjects_(APP.SHEETS.ACCOUNT_BALANCES, APP.HEADERS.ACCOUNT_BALANCES).map(normalizeAccountBalanceRow_);
+
+    const totalAssets = accounts.reduce(function (s, a) { return s + (Number(a.amount) || 0); }, 0)
+      + goals.reduce(function (s, g) { return s + (Number(g.current) || 0); }, 0);
+
+    const lastMonth = monthly[monthly.length - 1];
+    const savingsRate = lastMonth.income > 0 ? Math.round((lastMonth.net / lastMonth.income) * 100) : 0;
+
+    buildDashboardSheet_(ss, {
+      totalAssets: totalAssets,
+      currentIncome: lastMonth.income,
+      currentExpense: lastMonth.expense,
+      currentNet: lastMonth.net,
+      savingsRate: savingsRate,
+      monthly: monthly,
+      categoryTotals: categoryTotals,
+      goals: goals
+    });
+
+    ui.alert('הדשבורד עודכן.');
+  } catch (err) {
+    ui.alert('שגיאה בעדכון הדשבורד: ' + (err && err.message ? err.message : String(err)));
+  }
+}
+
+function appliesByFrequencyForMonth_(transaction, monthIndex, year) {
+  const freq = String(transaction.frequency || 'monthly');
+  const tDate = toDate_(transaction.date) || new Date(year, monthIndex, 1);
+  const monthsDiff = (year - tDate.getFullYear()) * 12 + (monthIndex - tDate.getMonth());
+  if (monthsDiff < 0) return false;
+  if (freq === 'monthly') return true;
+  if (freq === 'bi-monthly') return monthsDiff % 2 === 0;
+  if (freq === 'quarterly') return monthsDiff % 3 === 0;
+  if (freq === 'semi-annually') return monthsDiff % 6 === 0;
+  if (freq === 'annually' || freq === 'annual') return monthsDiff % 12 === 0;
+  return true;
+}
+
+function installmentActiveForMonth_(transaction, monthIndex, year) {
+  const total = Math.round(Number(transaction.installmentsTotal) || 0);
+  if (!transaction.isInstallments || total <= 0) return { enabled: false, active: false };
+
+  const startDate = toDate_(transaction.installmentsStartDate) || toDate_(transaction.date) || new Date(year, monthIndex, 1);
+  const monthsDiff = (year - startDate.getFullYear()) * 12 + (monthIndex - startDate.getMonth());
+  return { enabled: true, active: monthsDiff >= 0 && monthsDiff < total };
+}
+
+function transactionAppliesForMonth_(transaction, monthIndex, year) {
+  const installment = installmentActiveForMonth_(transaction, monthIndex, year);
+  if (installment.enabled) return installment.active;
+  if (transaction.isRecurring) return appliesByFrequencyForMonth_(transaction, monthIndex, year);
+
+  const tDate = toDate_(transaction.date);
+  return !!tDate && tDate.getMonth() === monthIndex && tDate.getFullYear() === year;
+}
+
+function computeMonthlyHistory_(monthsBack) {
+  const transactions = readObjects_(APP.SHEETS.TRANSACTIONS, APP.HEADERS.TRANSACTIONS).map(normalizeTransactionRow_);
+  const now = new Date();
+  const months = [];
+
+  for (let i = monthsBack - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const monthIndex = d.getMonth();
+    const year = d.getFullYear();
+
+    let income = 0;
+    let expense = 0;
+    const categoryTotals = {};
+
+    transactions.forEach(function (t) {
+      const amt = Number(t.amount) || 0;
+
+      if (t.type === 'fixed_income') {
+        if (appliesByFrequencyForMonth_(t, monthIndex, year)) income += amt;
+        return;
+      }
+      if (t.type === 'variable_income') {
+        const td = toDate_(t.date);
+        if (td && td.getMonth() === monthIndex && td.getFullYear() === year) income += amt;
+        return;
+      }
+      if (t.type === 'fixed_expense' || t.type === 'variable_expense') {
+        if (transactionAppliesForMonth_(t, monthIndex, year)) {
+          expense += amt;
+          const cat = t.category || 'אחר';
+          categoryTotals[cat] = (categoryTotals[cat] || 0) + amt;
+        }
+      }
+    });
+
+    months.push({
+      label: Utilities.formatDate(d, Session.getScriptTimeZone(), 'MM/yyyy'),
+      income: income,
+      expense: expense,
+      net: income - expense,
+      categoryTotals: categoryTotals
+    });
+  }
+
+  return months;
+}
+
+function computeCategoryTotals_(months) {
+  const totals = {};
+  months.forEach(function (m) {
+    Object.keys(m.categoryTotals).forEach(function (cat) {
+      totals[cat] = (totals[cat] || 0) + m.categoryTotals[cat];
+    });
+  });
+
+  const rows = Object.keys(totals).map(function (cat) { return [cat, totals[cat]]; });
+  rows.sort(function (a, b) { return b[1] - a[1]; });
+  return rows;
+}
+
+function buildDashboardSheet_(ss, data) {
+  let sheet = ss.getSheetByName(DASHBOARD_SHEET_NAME);
+  if (!sheet) sheet = ss.insertSheet(DASHBOARD_SHEET_NAME);
+
+  // Remove existing charts so a refresh doesn't stack duplicates, and clear
+  // a generous range so a shrinking category/goal list doesn't leave stale
+  // rows behind from a previous refresh.
+  sheet.getCharts().forEach(function (chart) { sheet.removeChart(chart); });
+  sheet.getRange(1, 1, 300, 10).clearContent();
+  sheet.getRange(1, 1, 300, 10).clearFormat();
+  sheet.setRightToLeft(true);
+
+  sheet.getRange('A1').setValue('BudgetPro — לוח בקרה').setFontSize(18).setFontWeight('bold');
+  sheet.getRange('A2').setValue(
+    'עודכן לאחרונה: ' + Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm')
+  ).setFontColor('#666666');
+
+  // --- KPI row ---
+  const kpiHeaders = ['סה״כ נכסים', 'הכנסות החודש', 'הוצאות החודש', 'נטו החודש', 'שיעור חיסכון'];
+  const kpiValues = [data.totalAssets, data.currentIncome, data.currentExpense, data.currentNet, data.savingsRate + '%'];
+  sheet.getRange(4, 1, 1, kpiHeaders.length).setValues([kpiHeaders]).setFontWeight('bold').setBackground('#EADDFF');
+  sheet.getRange(5, 1, 1, kpiValues.length).setValues([kpiValues]).setFontSize(14).setFontWeight('bold');
+  sheet.getRange(5, 1, 1, 4).setNumberFormat('#,##0 ₪');
+
+  // --- Monthly trend table + chart ---
+  let row = 7;
+  sheet.getRange(row, 1).setValue('מגמה חודשית (' + data.monthly.length + ' חודשים אחרונים)').setFontWeight('bold').setFontSize(13);
+  row++;
+  const monthlyHeaderRow = row;
+  sheet.getRange(row, 1, 1, 4).setValues([['חודש', 'הכנסות', 'הוצאות', 'נטו']]).setFontWeight('bold');
+  row++;
+  const monthlyRows = data.monthly.map(function (m) { return [m.label, m.income, m.expense, m.net]; });
+  sheet.getRange(row, 1, monthlyRows.length, 4).setValues(monthlyRows);
+  sheet.getRange(row, 2, monthlyRows.length, 3).setNumberFormat('#,##0 ₪');
+  row += monthlyRows.length;
+
+  const trendChart = sheet.newChart()
+    .setChartType(Charts.ChartType.COLUMN)
+    .addRange(sheet.getRange(monthlyHeaderRow, 1, monthlyRows.length + 1, 4))
+    .setPosition(monthlyHeaderRow, 6, 0, 0)
+    .setOption('title', 'הכנסות מול הוצאות')
+    .setOption('width', 500)
+    .setOption('height', 300)
+    .build();
+  sheet.insertChart(trendChart);
+
+  row += 2;
+
+  // --- Category breakdown table + pie chart ---
+  sheet.getRange(row, 1).setValue('הוצאות לפי קטגוריה').setFontWeight('bold').setFontSize(13);
+  row++;
+  const categoryHeaderRow = row;
+  sheet.getRange(row, 1, 1, 2).setValues([['קטגוריה', 'סכום']]).setFontWeight('bold');
+  row++;
+
+  if (data.categoryTotals.length > 0) {
+    sheet.getRange(row, 1, data.categoryTotals.length, 2).setValues(data.categoryTotals);
+    sheet.getRange(row, 2, data.categoryTotals.length, 1).setNumberFormat('#,##0 ₪');
+
+    const pieChart = sheet.newChart()
+      .setChartType(Charts.ChartType.PIE)
+      .addRange(sheet.getRange(categoryHeaderRow, 1, data.categoryTotals.length + 1, 2))
+      .setPosition(categoryHeaderRow, 6, 0, 320)
+      .setOption('title', 'הוצאות לפי קטגוריה')
+      .setOption('width', 500)
+      .setOption('height', 300)
+      .build();
+    sheet.insertChart(pieChart);
+
+    row += data.categoryTotals.length;
+  } else {
+    sheet.getRange(row, 1).setValue('אין הוצאות בתקופה');
+    row++;
+  }
+
+  row += 2;
+
+  // --- Savings goal progress ---
+  sheet.getRange(row, 1).setValue('התקדמות יעדי חיסכון').setFontWeight('bold').setFontSize(13);
+  row++;
+  sheet.getRange(row, 1, 1, 4).setValues([['יעד', 'סכום יעד', 'נצבר', 'התקדמות']]).setFontWeight('bold');
+  row++;
+
+  if (data.goals.length > 0) {
+    const goalRows = data.goals.map(function (g) {
+      const target = Number(g.target) || 0;
+      const current = Number(g.current) || 0;
+      const pct = target > 0 ? current / target : 0;
+      return [g.name, target, current, pct];
+    });
+    sheet.getRange(row, 1, goalRows.length, 4).setValues(goalRows);
+    sheet.getRange(row, 2, goalRows.length, 2).setNumberFormat('#,##0 ₪');
+    sheet.getRange(row, 4, goalRows.length, 1).setNumberFormat('0%');
+    row += goalRows.length;
+  } else {
+    sheet.getRange(row, 1).setValue('אין יעדי חיסכון');
+    row++;
+  }
+
+  sheet.autoResizeColumns(1, 4);
+}

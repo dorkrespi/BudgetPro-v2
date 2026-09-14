@@ -253,6 +253,14 @@ profile-photo fallback (see above) before it shipped, and confirmed the
 onboarding reorder doesn't break the redirect flow for already-connected
 users.
 
+The one piece that couldn't be tested that way is the Sheets dashboard
+(`refreshDashboard` in `code.gs`) — there's no local emulator for Apps Script,
+so it was written carefully against the documented API and verified for real
+only after deployment: opened the live Sheet, ran **BudgetPro → רענן דשבורד**
+from a clean state, and confirmed the KPI row, 6-month trend chart, category
+pie chart, and savings-goal table all populated correctly against real data
+on the first run.
+
 ## Known limitations
 
 Written down instead of hidden:
@@ -278,13 +286,6 @@ Written down instead of hidden:
   pills (expense/income/savings/alert indicators, built on raw Tailwind
   shades like `bg-rose-50`) don't have bespoke dark variants yet, so they
   read a bit light against the dark background.
-- **The Sheets dashboard was never verified against a live Sheet.** Everything
-  else in this repo was checked end-to-end (local server, then the live
-  GitHub Pages site); the dashboard's chart-building code (`refreshDashboard`
-  and friends in `code.gs`) could only be written carefully against the
-  documented Apps Script API, not actually run, since there's no deployed
-  instance to test it against from here. Chart positions in particular are a
-  first pass.
 
 ## Tech stack
 

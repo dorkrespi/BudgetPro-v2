@@ -67,12 +67,12 @@ data, and there's nothing to keep paying for.
 | **Savings goals** | Target, current balance, monthly deposit, start date and duration, icon and colour. A recurring deposit transaction is kept in sync with the goal automatically; individual months can be skipped. |
 | **Accounts** | Checking / savings / investment balances as the forecast's starting points, tracked separately so the projection distinguishes liquid cash from savings. |
 | **12-month forecast** | Per-month projected closing balance for checking and savings, with an interactive chart and a month-by-month breakdown of every contributing line. |
-| **History view** | A toggle on the Forecast page flips from projection to reconstruction: actual income vs. expense for the last 6 months, a category breakdown for the period, and a monthly list — built from the same recurring-transaction matching rules as the forecast, run backward instead of forward. |
+| **History view** | A toggle on the Forecast page flips from projection to reconstruction: actual income vs. expense for the last 6 months, a category breakdown for the period, a net-worth trend chart, and a monthly list — built from the same recurring-transaction matching rules as the forecast, run backward instead of forward. |
 | **Salary-cycle budgeting** | The "current month" everywhere in the app runs from your payday to the next. |
 | **Connect + light onboarding** | First launch asks you to connect a Google Sheet, with an in-app checklist for setting one up. A short 2-step intro (name, household mode) follows *after* the connection succeeds, so nothing typed is ever silently lost. |
 | **Partner invites** | Generate a one-time, expiring invite link (WhatsApp deep-link) so a partner connects to the same backend without ever seeing the shared secret. |
 | **Native Sheets dashboard** | A "Dashboard" tab in the Google Sheet itself — KPI row, a 6-month income/expense trend chart, a category pie chart, savings-goal progress — refreshed from a **BudgetPro → רענן דשבורד** menu inside Sheets. Works standalone; doesn't need the app open. |
-| **Undo, not just confirm** | Deleting a transaction, savings goal, or account removes it instantly but holds the actual write for 5 seconds behind an undo toast — nothing reaches the Sheet until the window closes. |
+| **Undo, not just confirm** | Deleting *or editing* a transaction, savings goal, or account applies instantly but holds the actual write for 5 seconds behind an undo toast — nothing reaches the Sheet until the window closes. |
 | **Categories & charts** | Editable categories with Material Symbols icons; category-breakdown donut on the home screen. |
 | **Installable (PWA)** | A web app manifest and a shell-caching service worker mean it can be added to a phone's home screen and opens instantly even on a flaky connection. Live data still always comes from the network — the service worker never caches the Apps Script API. |
 | **Dark mode** | Follows the system theme by default, with a Light/Dark/System toggle in Settings. Built on CSS custom properties, not a `dark:`-class retrofit, so the existing Material 3 color tokens (`bg-primary`, `bg-surface`, …) are theme-aware everywhere they're already used. |
@@ -162,10 +162,13 @@ Small things that add up to the app not lying to you about its own state:
 - **Save-failure toast.** Optimistic UI means an edit appears instantly whether or
   not it reached the Sheet. If the write fails, a toast says so explicitly instead
   of failing silently — the local change is kept and a recovery sync is attempted.
-- **Undo for delete.** No `confirm()` dialogs. Deleting removes the item locally
-  right away and shows an undo toast for 5 seconds; the actual delete request is
-  only sent if that window closes without a tap on "בטל" (undo). Undoing sends
-  nothing to the backend at all.
+- **Undo for delete and edit.** No `confirm()` dialogs. Deleting or editing a
+  transaction, savings goal, or account applies locally right away and shows an
+  undo toast for 5 seconds; the actual write is only sent if that window closes
+  without a tap on "בטל" (undo). Undoing restores the previous local state and
+  sends nothing to the backend at all. One scoped exception: editing a savings
+  goal still eagerly (not behind the undo window) syncs its linked recurring
+  deposit transaction, to avoid the two staying out of sync mid-undo.
 - **Fallback avatar.** A missing profile photo renders a plain icon instead of a
   broken `<img>` with English alt text leaking into an all-Hebrew UI.
 - **Scoped service worker.** The cache only ever holds `index.html`, `app.js`, and

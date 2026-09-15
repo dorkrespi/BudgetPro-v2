@@ -13,7 +13,9 @@ hold, month by month, backed by a Google Sheet instead of a proprietary server.
 **Live demo → https://dorkrespi.github.io/BudgetPro-v2/**
 The demo opens on the connect screen with an in-app checklist for setting up your
 own Google Sheet backend (2 minutes, see [Deploy your own copy](#deploy-your-own-copy)).
-The screenshots below show the app populated with sample data.
+The screenshots and recording below show the app populated with sample data.
+
+<img src="docs/budgetpro-demo.gif" alt="Walkthrough: home, forecast, savings, transactions" width="360">
 
 | Home | Forecast | Savings | Transactions |
 |---|---|---|---|

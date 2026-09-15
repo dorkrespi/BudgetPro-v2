@@ -1435,8 +1435,36 @@ function renderForecastViewToggle() {
     `;
 }
 
+function generateNetWorthHistory(historyData) {
+    // Walks backward from today's actual total (checking + other accounts +
+    // savings goals) using each month's income-minus-expense net - the same
+    // net generateHistoryData already computes, which deliberately excludes
+    // savings_deposit transactions since those move money between accounts
+    // rather than adding or removing it. This is a reconstruction, not a
+    // ledger: any manual balance correction that wasn't logged as a
+    // transaction will make older months drift from what they actually were.
+    const currentChecking = state.accountBalances
+        .filter(a => a.type === 'checking')
+        .reduce((s, a) => s + a.amount, 0);
+    const currentOtherAccounts = state.accountBalances
+        .filter(a => a.type !== 'checking')
+        .reduce((s, a) => s + a.amount, 0);
+    const currentGoalsSavings = state.savingsGoals
+        .reduce((s, g) => s + (Number(g.current) || 0), 0);
+    const currentTotal = currentChecking + currentOtherAccounts + currentGoalsSavings;
+
+    const result = new Array(historyData.length);
+    let runningTotal = currentTotal;
+    for (let i = historyData.length - 1; i >= 0; i--) {
+        result[i] = { month: historyData[i].month, fullMonth: historyData[i].fullMonth, netWorth: runningTotal };
+        runningTotal -= historyData[i].net;
+    }
+    return result;
+}
+
 function renderHistoryView() {
     const historyData = generateHistoryData(6);
+    const netWorthHistory = generateNetWorthHistory(historyData);
     const totalIncome = historyData.reduce((s, m) => s + m.income, 0);
     const totalExpense = historyData.reduce((s, m) => s + m.expense, 0);
     const avgNet = historyData.length ? (totalIncome - totalExpense) / historyData.length : 0;
@@ -1471,6 +1499,19 @@ function renderHistoryView() {
                         </span>
                     </div>
                     <p class="text-on-primary-container/70 text-xs mt-1">מבוסס על התנועות הרשומות אצלך, לא על דוח בנק.</p>
+                </div>
+            </div>
+
+            <!-- Net Worth Chart -->
+            <div class="space-y-4">
+                <div class="px-2">
+                    <h3 class="text-2xl font-bold">מגמת שווי נטו</h3>
+                    <p class="text-on-surface-variant text-sm">עו״ש + חסכונות ביחד, ${netWorthHistory.length} החודשים האחרונים - שוחזר אחורה מהיתרה הנוכחית, לא נמדד בזמן אמת.</p>
+                </div>
+                <div class="bg-surface p-6 rounded-3xl border border-surface-variant/30 shadow-sm">
+                    <div class="h-64 w-full">
+                        <canvas id="netWorthChart"></canvas>
+                    </div>
                 </div>
             </div>
 
@@ -3045,14 +3086,26 @@ function toggleInstallmentsDetails() {
 }
 function handleSaveTransaction(data, isEdit) {
     if (isEdit) {
+        const previous = state.transactions.find(t => t.id === data.id);
         state.transactions = state.transactions.map(t => t.id === data.id ? data : t);
-        saveDataToGAS('updateTransaction', data);
-    } else {
-        state.transactions.push(data);
-        saveDataToGAS('addTransaction', data);
+        closeModal();
+        render();
+
+        showUndoToast('התנועה עודכנה', {
+            onUndo: () => {
+                if (!previous) return;
+                state.transactions = state.transactions.map(t => t.id === data.id ? previous : t);
+                render();
+            },
+            onCommit: () => saveDataToGAS('updateTransaction', data)
+        });
+        return;
     }
+
+    state.transactions.push(data);
     closeModal();
     render();
+    saveDataToGAS('addTransaction', data);
 }
 
 function handleDeleteTransaction(id) {
@@ -3350,12 +3403,28 @@ function selectColor(color) {
 
 function handleSaveSavings(data, isEdit) {
     if (isEdit) {
+        const previous = state.savingsGoals.find(g => g.id === data.id);
         state.savingsGoals = state.savingsGoals.map(g => g.id === data.id ? data : g);
-        saveDataToGAS('updateSavingsGoal', data);
-    } else {
-        state.savingsGoals.push(data);
-        saveDataToGAS('addSavingsGoal', data);
+        // The linked recurring-deposit transaction (if any) stays immediate,
+        // not part of the undo window - keeping the deferred side of this to
+        // just the goal itself avoids having to also snapshot/restore that
+        // transaction in lockstep.
+        syncRecurringDepositWithGoal(data, isEdit);
+        closeModal();
+        render();
+
+        showUndoToast('היעד עודכן', {
+            onUndo: () => {
+                if (!previous) return;
+                state.savingsGoals = state.savingsGoals.map(g => g.id === data.id ? previous : g);
+                render();
+            },
+            onCommit: () => saveDataToGAS('updateSavingsGoal', data)
+        });
+        return;
     }
+
+    state.savingsGoals.push(data);
     syncRecurringDepositWithGoal(data, isEdit);
     closeModal();
     render();
@@ -3565,14 +3634,26 @@ function renderAccountModal(account = null) {
 
 function handleSaveAccount(data, isEdit) {
     if (isEdit) {
+        const previous = state.accountBalances.find(a => a.id === data.id);
         state.accountBalances = state.accountBalances.map(a => a.id === data.id ? data : a);
-        saveDataToGAS('updateAccountBalance', data);
-    } else {
-        state.accountBalances.push(data);
-        saveDataToGAS('addAccountBalance', data);
+        closeModal();
+        render();
+
+        showUndoToast('החשבון עודכן', {
+            onUndo: () => {
+                if (!previous) return;
+                state.accountBalances = state.accountBalances.map(a => a.id === data.id ? previous : a);
+                render();
+            },
+            onCommit: () => saveDataToGAS('updateAccountBalance', data)
+        });
+        return;
     }
+
+    state.accountBalances.push(data);
     closeModal();
     render();
+    saveDataToGAS('addAccountBalance', data);
 }
 
 function handleDeleteAccount(id) {
@@ -3627,6 +3708,7 @@ function initCharts() {
         initHomeCharts();
     } else if (basePath === '/forecast') {
         if (state.activeForecastView === 'history') {
+            initNetWorthChart();
             initHistoryChart();
         } else {
             initForecastChart();
@@ -3823,6 +3905,60 @@ function initForecastChart() {
                 y: {
                     stacked: true,
                     beginAtZero: true,
+                    ticks: {
+                        callback: function(value) {
+                            return formatCurrency(value, false);
+                        }
+                    }
+                }
+            }
+        }
+    });
+}
+
+function initNetWorthChart() {
+    const ctx = document.getElementById('netWorthChart');
+    if (!ctx) return;
+
+    const historyData = generateHistoryData(6);
+    const netWorthHistory = generateNetWorthHistory(historyData);
+
+    new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: netWorthHistory.map(d => d.month),
+            datasets: [
+                {
+                    label: 'שווי נטו',
+                    data: netWorthHistory.map(d => d.netWorth),
+                    borderColor: '#6750A4',
+                    backgroundColor: 'rgba(103, 80, 164, 0.15)',
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 4,
+                    pointBackgroundColor: '#6750A4'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    rtl: true,
+                    callbacks: {
+                        label: function(context) {
+                            return context.parsed.y !== null ? formatCurrency(context.parsed.y) : '';
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    grid: { display: false }
+                },
+                y: {
                     ticks: {
                         callback: function(value) {
                             return formatCurrency(value, false);

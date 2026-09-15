@@ -3428,6 +3428,7 @@ function handleSaveSavings(data, isEdit) {
     syncRecurringDepositWithGoal(data, isEdit);
     closeModal();
     render();
+    saveDataToGAS('addSavingsGoal', data);
 }
 
 function handleExtraDepositClick(event, goalId) {

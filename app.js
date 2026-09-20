@@ -1592,7 +1592,9 @@ function renderForecast() {
     const totalBalance = state.accountBalances.reduce((sum, acc) => sum + acc.amount, 0);
     const forecastData = generateForecastData();
     const yearEndTotal = forecastData[11].total;
-    const growthPercent = ((yearEndTotal - totalBalance) / totalBalance * 100).toFixed(1);
+    const growthPercent = totalBalance !== 0
+        ? ((yearEndTotal - totalBalance) / totalBalance * 100).toFixed(1)
+        : (yearEndTotal > 0 ? '100.0' : '0.0');
 
     return `
         <div class="space-y-8 pb-10">
@@ -3562,8 +3564,8 @@ function renderCategoryModal() {
     document.getElementById('category-form').onsubmit = (e) => {
         e.preventDefault();
         const name = new FormData(e.target).get('name');
-        if (name && !state.categories.includes(name)) {
-            state.categories.push(name);
+        if (name && !state.categories.some((c) => c.name === name)) {
+            state.categories.push({ name, icon: 'category' });
             saveDataToGAS('addCategory', { name });
             closeModal();
             renderTransactionModal(); // Re-open transaction modal to show new category

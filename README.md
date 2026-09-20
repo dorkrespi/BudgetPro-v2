@@ -278,12 +278,6 @@ Written down instead of hidden:
   but there's still no conflict *detection* or merge — two devices editing at
   the same time settle on whoever's write lands second, safely, without a
   warning to either side.
-- **`householdMode` and `partnerPhone` aren't in the Sheet's typed schema.**
-  `code.gs`'s `normalizeSettingsObject_` only persists eight known settings
-  fields, so those two are saved to `localStorage` and pushed to the backend on
-  every `updateSettings` call, but silently dropped by the server's own
-  normalization — they don't yet survive a fresh login on a second device.
-  Fixing it means extending the server-side settings schema.
 - **Single shared secret per household.** Anyone with the secret has full
   read/write access; there's no per-user permission model.
 - **Dark mode covers structure, not every accent color.** Backgrounds, text,

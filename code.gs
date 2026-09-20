@@ -55,7 +55,9 @@ const APP = {
     autoRecalculate: true,
     profileImage: '',
     scriptUrl: '',
-    secretKey: ''
+    secretKey: '',
+    householdMode: '',
+    partnerPhone: ''
   },
   DEFAULT_CATEGORIES: ['מזון', 'פנאי', 'תחבורה', 'בריאות', 'קניות', 'מגורים', 'אחר']
 };
@@ -552,7 +554,9 @@ function normalizeSettingsObject_(raw) {
     autoRecalculate: toBoolWithDefault_(input.autoRecalculate, APP.DEFAULT_SETTINGS.autoRecalculate),
     profileImage: String(input.profileImage || APP.DEFAULT_SETTINGS.profileImage),
     scriptUrl: String(input.scriptUrl || APP.DEFAULT_SETTINGS.scriptUrl),
-    secretKey: String(input.secretKey || APP.DEFAULT_SETTINGS.secretKey)
+    secretKey: String(input.secretKey || APP.DEFAULT_SETTINGS.secretKey),
+    householdMode: String(input.householdMode || APP.DEFAULT_SETTINGS.householdMode),
+    partnerPhone: String(input.partnerPhone || APP.DEFAULT_SETTINGS.partnerPhone)
   };
 }
 
@@ -640,6 +644,17 @@ function writeSettings_(settings) {
   const rows = Object.keys(normalized).map(function(key) {
     return [key, normalized[key]];
   });
+
+  // Force the value column to plain text before writing. Without this,
+  // Sheets' automatic number detection mangles numeric-looking string
+  // values the moment they're written - e.g. an Israeli phone number like
+  // "0501234567" silently loses its leading zero, even going through the
+  // API (setValue isn't exempt). Setting the format first, before the
+  // values land, is what actually prevents it.
+  if (rows.length) {
+    const sheet = getSheet_(APP.SHEETS.SETTINGS, APP.HEADERS.SETTINGS);
+    sheet.getRange(2, 2, rows.length, 1).setNumberFormat('@');
+  }
 
   writeValues_(APP.SHEETS.SETTINGS, APP.HEADERS.SETTINGS, rows);
 }
